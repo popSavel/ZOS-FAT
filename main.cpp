@@ -22,7 +22,6 @@ struct description {
     int32_t cluster_count;          //pocet clusteru
     int32_t fat_count;        	    //pocet polozek kazde FAT tabulce
     int32_t fat1_start_address;	    //adresa pocatku FAT1 tabulky
-    int32_t fat2_start_address;     //adresa pocatku FAT2 tabulky
     int32_t data_start_address;     //adresa pocatku datovych bloku (hl. adresar)  
 };
 
@@ -32,6 +31,8 @@ struct directory_item {
     int32_t size;                    //velikost souboru, u adresáøe 0 (bude zabirat jeden blok)
     int32_t start_cluster;           //poèáteèní cluster položky
 };
+
+int getPrikaz(char* vstup);
 
 
 int main(int argc, char** argv){
@@ -47,8 +48,6 @@ int main(int argc, char** argv){
         printf("Name must be maximum 9 characters long!!");
         return -1;
     }
-
-	printf("name: %s\n", name);
 
     FILE* file;
     struct description desc;
@@ -213,7 +212,9 @@ int main(int argc, char** argv){
     file = fopen("empty.fat", "w");
     fwrite(&desc, sizeof(desc), 1, file);
     fwrite(&fat, sizeof(fat), 1, file);
-    fwrite(&fat, sizeof(fat), 1, file);
+
+    desc.fat1_start_address = sizeof(desc);
+    desc.data_start_address = desc.fat1_start_address + sizeof(fat);
 
     int16_t cl_size = desc.cluster_size;
     int16_t ac_size = 0;
@@ -270,5 +271,58 @@ int main(int argc, char** argv){
     }
     fclose(file);
 
+    char vstup [10];
+    char param1[10];
+   // memset(vstup, '\0', sizeof(vstup));    
+    int prikaz;
+
+    while (true) {
+        memset(&vstup, '\0', sizeof(vstup));
+       scanf("%s", &vstup);
+       scanf("%s", &param1);
+        scanf(vstup);
+        printf("vstup: %s\n", vstup);
+        prikaz = getPrikaz(vstup);
+
+        switch (prikaz){
+        
+        case 1:
+            //scanf("%s", &vstup);
+            printf("file: %s\n", param1);
+            break;
+        
+        case 15:
+            printf("Neplatny prikaz\n");
+            break;
+
+        case 16:
+            printf("KOnec\n");
+            return 0;
+
+        default:
+            printf("ERROR\n");
+            return -1;
+        }
+    }
+
 	return 0;
+}
+
+int getPrikaz(char * vstup) {
+    char* token;
+    token = strtok(vstup, " ");
+    /*
+    if (strcmp(token, "cat") == 0) {
+        return 1;
+    }*/
+    
+    if (strcmp(vstup, "cat") == 0) {
+        return 1;
+    }
+    if (strcmp(vstup, "exit") == 0) {
+        return 16;
+    }
+    else {
+        return 15;
+    }
 }
