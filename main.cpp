@@ -43,61 +43,19 @@ struct description desc;
 
 int getPrikaz(char* vstup);
 
-int findFile(FILE* file, char* name) {
-    char buffer[9];
-   // char buffer2[sizeof(directory_item)];
+
+directory_item get_directory_item(FILE* file, char* name) {
+    struct directory_item dir;
     size_t numread;
-    //directory_item* searched_item = NULL;
-    //printf("%s\n", name);
     for (int i = 0; i < desc.dir_entry_count; i++) {
-        int offset = desc.data_start_address + sizeof(directory_item)*i;
-        printf(" % d\n", offset);
+        int offset = desc.data_start_address + sizeof(directory_item) * i;
         fseek(file, offset, SEEK_SET);
-        numread = fread(buffer, sizeof(*buffer), 9, file);
-        if (strcmp(name, buffer) == 0) {
-            
-            //numread = fread(buffer2, sizeof(*buffer2), sizeof(directory_item), file);
-            printf("gadit, \n");
-            return 0;
+        numread = fread(&dir, sizeof(struct directory_item), 1, file);
+        if (strcmp(name, dir.item_name) == 0) {           
+            return dir;
         }
-        printf("%s, %d\n", buffer, numread);
     }
-    return 0;
 }
-
-    /*
-int readFile(char* file_name, int32_t start) {
-   
-    fstream file;
-    file.open("empty.fat", ios::in);
-    char buffer[10000];
-    if (!file) {
-        cout << "No such file";
-    }
-    else {
-        char ch;
-
-        for (int i = 0; i < 10000; i++) {
-           file >> ch;
-           buffer[i] = ch;
-           if (file.eof())
-                break;
-           if (i == start) {
-                cout << "AAAAGG" << ch << endl;
-            }
-            //cout << ch;
-            
-        }
-        cout << start;
-        for (int i = start; i < sizeof(buffer); i++) {
-            cout << buffer[i];
-        }
-
-    }
-    file.close();
-    return 0;
-   
-}*/
 
 int main(int argc, char** argv){
 
@@ -344,7 +302,8 @@ int main(int argc, char** argv){
     char param1[10];
    // memset(vstup, '\0', sizeof(vstup));    
     int prikaz;
-    directory_item* searched_file;
+    int offset;
+    directory_item dir;
 
     while (true) {
        memset(&vstup, '\0', sizeof(vstup));
@@ -356,12 +315,10 @@ int main(int argc, char** argv){
 
         switch (prikaz){
         
-        case 1:
-            //scanf("%s", &vstup);
-            printf("file: %s\n", param1);
-            //readFile(param1, desc.data_start_address);
-            findFile(file, param1);
-            //printf("%d\n", searched_file->size);
+        case 1:         
+            printf("file: %s\n", param1);        
+            dir = get_directory_item(file, param1);
+            printf("%d\n", dir.size);
             break;
         
         case 15:
