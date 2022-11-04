@@ -10,6 +10,12 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdint>
+#include <fcntl.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <bits/stdc++.h>
+
+using namespace std;
 
 const int32_t FAT_UNUSED = INT32_MAX - 1;
 const int32_t FAT_FILE_END = INT32_MAX - 2;
@@ -22,7 +28,8 @@ struct description {
     int32_t cluster_count;          //pocet clusteru
     int32_t fat_count;        	    //pocet polozek kazde FAT tabulce
     int32_t fat1_start_address;	    //adresa pocatku FAT1 tabulky
-    int32_t data_start_address;     //adresa pocatku datovych bloku (hl. adresar)  
+    int32_t data_start_address;     //adresa pocatku datovych bloku (hl. adresar)
+    int32_t dir_entry_count;
 };
 
 struct directory_item {
@@ -32,8 +39,65 @@ struct directory_item {
     int32_t start_cluster;           //poèáteèní cluster položky
 };
 
+struct description desc;
+
 int getPrikaz(char* vstup);
 
+int findFile(FILE* file, char* name) {
+    char buffer[9];
+   // char buffer2[sizeof(directory_item)];
+    size_t numread;
+    //directory_item* searched_item = NULL;
+    //printf("%s\n", name);
+    for (int i = 0; i < desc.dir_entry_count; i++) {
+        int offset = desc.data_start_address + sizeof(directory_item)*i;
+        printf(" % d\n", offset);
+        fseek(file, offset, SEEK_SET);
+        numread = fread(buffer, sizeof(*buffer), 9, file);
+        if (strcmp(name, buffer) == 0) {
+            
+            //numread = fread(buffer2, sizeof(*buffer2), sizeof(directory_item), file);
+            printf("gadit, \n");
+            return 0;
+        }
+        printf("%s, %d\n", buffer, numread);
+    }
+    return 0;
+}
+
+    /*
+int readFile(char* file_name, int32_t start) {
+   
+    fstream file;
+    file.open("empty.fat", ios::in);
+    char buffer[10000];
+    if (!file) {
+        cout << "No such file";
+    }
+    else {
+        char ch;
+
+        for (int i = 0; i < 10000; i++) {
+           file >> ch;
+           buffer[i] = ch;
+           if (file.eof())
+                break;
+           if (i == start) {
+                cout << "AAAAGG" << ch << endl;
+            }
+            //cout << ch;
+            
+        }
+        cout << start;
+        for (int i = start; i < sizeof(buffer); i++) {
+            cout << buffer[i];
+        }
+
+    }
+    file.close();
+    return 0;
+   
+}*/
 
 int main(int argc, char** argv){
 
@@ -50,12 +114,12 @@ int main(int argc, char** argv){
     }
 
     FILE* file;
-    struct description desc;
     struct directory_item root_a, root_b, root_c;
     //smazani /0 u stringu
     memset(desc.signature, '\0', sizeof(desc.signature));
     desc.cluster_size = 256;
     desc.cluster_count = 252;
+    desc.dir_entry_count = 3;
     strcpy(desc.signature, name);
     printf("name: %s\n", desc.signature);
 
@@ -71,8 +135,8 @@ int main(int argc, char** argv){
     memset(root_b.item_name, '\0', sizeof(root_b.item_name));
     root_b.isFile = 1;
     strcpy(root_b.item_name, "pohadka.txt");
-    root_a.size = 5975;
-    root_a.start_cluster = 2;
+    root_b.size = 5975;
+    root_b.start_cluster = 2;
 
     /*
     * directory
@@ -209,12 +273,17 @@ int main(int argc, char** argv){
         fat[i] = FAT_UNUSED;
     }
 
-    file = fopen("empty.fat", "w");
+    file = fopen("empty.fat", "w+");
     fwrite(&desc, sizeof(desc), 1, file);
     fwrite(&fat, sizeof(fat), 1, file);
 
     desc.fat1_start_address = sizeof(desc);
     desc.data_start_address = desc.fat1_start_address + sizeof(fat);
+    cout << "sizeof(desc)" << sizeof(desc) << endl;
+    cout << "sizeof(fat)"  << sizeof(fat) << endl;
+    cout << desc.fat1_start_address << endl;
+    cout << desc.data_start_address << endl;
+
 
     int16_t cl_size = desc.cluster_size;
     int16_t ac_size = 0;
@@ -269,15 +338,16 @@ int main(int argc, char** argv){
     {
         fwrite(&cluster_empty, sizeof(cluster_empty), 1, file);
     }
-    fclose(file);
+    //fclose(file);
 
     char vstup [10];
     char param1[10];
    // memset(vstup, '\0', sizeof(vstup));    
     int prikaz;
+    directory_item* searched_file;
 
     while (true) {
-        memset(&vstup, '\0', sizeof(vstup));
+       memset(&vstup, '\0', sizeof(vstup));
        scanf("%s", &vstup);
        scanf("%s", &param1);
         scanf(vstup);
@@ -289,6 +359,9 @@ int main(int argc, char** argv){
         case 1:
             //scanf("%s", &vstup);
             printf("file: %s\n", param1);
+            //readFile(param1, desc.data_start_address);
+            findFile(file, param1);
+            //printf("%d\n", searched_file->size);
             break;
         
         case 15:
@@ -311,10 +384,6 @@ int main(int argc, char** argv){
 int getPrikaz(char * vstup) {
     char* token;
     token = strtok(vstup, " ");
-    /*
-    if (strcmp(token, "cat") == 0) {
-        return 1;
-    }*/
     
     if (strcmp(vstup, "cat") == 0) {
         return 1;
@@ -326,3 +395,4 @@ int getPrikaz(char * vstup) {
         return 15;
     }
 }
+
