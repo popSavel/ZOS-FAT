@@ -55,26 +55,8 @@ void printFile(directory_item dir, int32_t *fat_tab, FILE* file) {
     } while (ptr != FAT_FILE_END);
 }
 
-/*
-void printFile(directory_item dir, int32_t *fat_tab, FILE* file) {
-    size_t numread;
-    char* out[desc.cluster_size];
-    int offset = desc.data_start_address + sizeof(directory_item) * 3;
-   // char out[desc.cluster_size];
-    fseek(file, offset, SEEK_SET);
-    fread(out, sizeof(char) * desc.cluster_size, 1, file);
-    
-    for (int i = 0; i < desc.cluster_size; i++) {
-        fread(&out[i], sizeof(char), 1, file);
-    }
-    
-    
-    printf("Read  Bytes: %s", out);
-
-}*/
 
 void get_fat(FILE* file, int32_t *fat_tab) {
-    //int32_t result[desc.cluster_count];
     int offset = desc.fat1_start_address;
     fseek(file, offset, SEEK_SET);
     fread(fat_tab, sizeof(int32_t) * desc.cluster_count, 1, file);
@@ -87,10 +69,11 @@ directory_item get_directory_item(FILE* file, char* name) {
         int offset = desc.data_start_address + sizeof(directory_item) * i;
         fseek(file, offset, SEEK_SET);
         numread = fread(&dir, sizeof(struct directory_item), 1, file);
-        if (strcmp(name, dir.item_name) == 0) {           
+        if (strcmp(name, dir.item_name) == 0) {     
             return dir;
         }
     }
+    return dir;
 }
 
 int main(int argc, char** argv){
@@ -273,11 +256,6 @@ int main(int argc, char** argv){
 
     desc.fat1_start_address = sizeof(desc);
     desc.data_start_address = desc.fat1_start_address + sizeof(fat);
-    cout << "sizeof(desc)" << sizeof(desc) << endl;
-    cout << "sizeof(fat)"  << sizeof(fat) << endl;
-    cout << desc.fat1_start_address << endl;
-    cout << desc.data_start_address << endl;
-
 
     int16_t cl_size = desc.cluster_size;
     int16_t ac_size = 0;
@@ -332,29 +310,54 @@ int main(int argc, char** argv){
     {
         fwrite(&cluster_empty, sizeof(cluster_empty), 1, file);
     }
-    //fclose(file);
 
-    char vstup [10];
-    char param1[10];
-   // memset(vstup, '\0', sizeof(vstup));    
+    char vstup [30];
+    char fce [10];
+    char param1[20];
+    char param2[20];
+    char* token;
+    char* rest = NULL;    
     int prikaz;
     int offset;
     directory_item dir;
     int32_t fat_tab[desc.cluster_count];
+    char enter;
 
     while (true) {
        memset(&vstup, '\0', sizeof(vstup));
-       scanf("%s", &vstup);
-       scanf("%s", &param1);
-        scanf(vstup);
+       memset(&param1, '\0', sizeof(param1));
+       memset(&param2, '\0', sizeof(param2));
+       
+        fgets(vstup, 30, stdin);
         printf("vstup: %s\n", vstup);
-        prikaz = getPrikaz(vstup);
+        vstup[strcspn(vstup, "\n")] = 0;
+        token = strtok_r(vstup, " ", &rest);
+        
+        strcpy(fce, token);
+        
+        token = strtok_r(NULL, " ", &rest);
+        
+        if (token != NULL) {
+            strcpy(param1, token);
+            token = strtok_r(NULL, " ", &rest);
+            if (token != NULL) {
+                strcpy(param2, token);
+                token = strtok_r(NULL, " ", &rest);
+                if (token != NULL) {
+                    printf("prilis mnoho parametru\n");
+                    return -1;
+                }
+            }
+        }
+      
+        
+        prikaz = getPrikaz(fce);
 
         switch (prikaz){
         
         case 1:         
             printf("file: %s\n", param1);        
-            dir = get_directory_item(file, param1);
+            dir = get_directory_item(file, param1);          
             get_fat(file, fat_tab);
             printFile(dir, fat_tab, file);
             break;
