@@ -7,13 +7,11 @@
 /*                                                                            */
 /* ========================================================================== */
 
-#include <cstdio>
-#include <cstring>
-#include <cstdint>
-#include <fcntl.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <bits/stdc++.h>
+#include <ostream>
+#include <iostream>
+#include <cstring>
 
 using namespace std;
 
@@ -43,16 +41,43 @@ struct description desc;
 
 int getPrikaz(char* vstup);
 
-void get_fat(FILE* file, int32_t* fat) {
-    int32_t array[desc.cluster_count];
-    int seek_offset = desc.fat1_start_address;
-    fseek(file, seek_offset, SEEK_SET);
-    fread(&fat, sizeof(int32_t) * desc.cluster_count, 1, file);
-    printf("%d\n", desc.cluster_count);
+void printFile(directory_item dir, int32_t *fat_tab, FILE* file) {
+    int ptr = dir.start_cluster;
+    int start_adress = desc.data_start_address + desc.cluster_size;
+    int adress;
+    char out[desc.cluster_size];
+    do {
+        adress = start_adress + ptr * desc.cluster_size;       
+        fseek(file, adress, SEEK_SET);
+        fread(&out, sizeof(out), 1, file);
+        printf("%s",out);
+        ptr = fat_tab[ptr];
+    } while (ptr != FAT_FILE_END);
+}
+
+/*
+void printFile(directory_item dir, int32_t *fat_tab, FILE* file) {
+    size_t numread;
+    char* out[desc.cluster_size];
+    int offset = desc.data_start_address + sizeof(directory_item) * 3;
+   // char out[desc.cluster_size];
+    fseek(file, offset, SEEK_SET);
+    fread(out, sizeof(char) * desc.cluster_size, 1, file);
     
-    for (int i = 0; i < desc.cluster_count; i++) {
-        fat[i] = array[i];
+    for (int i = 0; i < desc.cluster_size; i++) {
+        fread(&out[i], sizeof(char), 1, file);
     }
+    
+    
+    printf("Read  Bytes: %s", out);
+
+}*/
+
+void get_fat(FILE* file, int32_t *fat_tab) {
+    //int32_t result[desc.cluster_count];
+    int offset = desc.fat1_start_address;
+    fseek(file, offset, SEEK_SET);
+    fread(fat_tab, sizeof(int32_t) * desc.cluster_count, 1, file);
 }
 
 directory_item get_directory_item(FILE* file, char* name) {
@@ -99,13 +124,13 @@ int main(int argc, char** argv){
     root_a.isFile = 1;
     strcpy(root_a.item_name, "cisla.txt");
     root_a.size = 135;
-    root_a.start_cluster = 1;
+    root_a.start_cluster = 0;
 
     memset(root_b.item_name, '\0', sizeof(root_b.item_name));
     root_b.isFile = 1;
     strcpy(root_b.item_name, "pohadka.txt");
     root_b.size = 5975;
-    root_b.start_cluster = 2;
+    root_b.start_cluster = 1;
 
     /*
     * directory
@@ -114,7 +139,7 @@ int main(int argc, char** argv){
     root_c.isFile = 0;
     strcpy(root_c.item_name, "direct-1");
     root_c.size = 0;
-    root_c.start_cluster = 29;
+    root_c.start_cluster = 28;
 
     char cluster_empty[desc.cluster_size];
     char cluster_dir1[desc.cluster_size];
@@ -315,6 +340,7 @@ int main(int argc, char** argv){
     int prikaz;
     int offset;
     directory_item dir;
+    int32_t fat_tab[desc.cluster_count];
 
     while (true) {
        memset(&vstup, '\0', sizeof(vstup));
@@ -329,12 +355,8 @@ int main(int argc, char** argv){
         case 1:         
             printf("file: %s\n", param1);        
             dir = get_directory_item(file, param1);
-            get_fat(file, fat);
-            printf("hgsuaf");
-            for (int k = 0; k < 10; k++) {
-                printf("%d\n", fat[k]);
-            }
-            printf("%d\n", dir.start_cluster);
+            get_fat(file, fat_tab);
+            printFile(dir, fat_tab, file);
             break;
         
         case 15:
@@ -350,6 +372,7 @@ int main(int argc, char** argv){
             return -1;
         }
     }
+    fclose(file);
 
 	return 0;
 }
