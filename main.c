@@ -18,6 +18,7 @@ using namespace std;
 const int32_t FAT_UNUSED = INT32_MAX - 1;
 const int32_t FAT_FILE_END = INT32_MAX - 2;
 const int32_t FAT_BAD_CLUSTER = INT32_MAX - 3;
+const int32_t MAX_DIR_IMMERSION = 5;
 
 struct description {
     char signature[9];              //login autora FS
@@ -40,6 +41,10 @@ struct directory_item {
 struct description desc;
 
 int getPrikaz(char* vstup);
+
+void copyFile(directory_item dir, int32_t *fat_tab, FILE* file, char* cesta) {
+    printf("kopiruju soubor: %s, do: %s\n", dir.item_name, cesta);
+}
 
 void printFile(directory_item dir, int32_t *fat_tab, FILE* file) {
     int ptr = dir.start_cluster;
@@ -76,6 +81,46 @@ directory_item get_directory_item(FILE* file, char* name) {
     return dir;
 }
 
+int isValidPath(FILE* file, char* path[], int length) {
+    struct directory_item dir;
+    int adress = desc.data_start_address + desc.cluster_size;
+    char content[desc.cluster_size];
+    char* subdirs[desc.cluster_size];
+    char* token;
+    int index;
+    int ok;
+    if (length < 2) {
+        return 1;
+    }
+    for (int i = 0; i < length - 1; i++) {
+        ok = 0;
+        dir = get_directory_item(file, path[i]);
+        adress += dir.start_cluster * desc.cluster_size;
+        fseek(file, adress, SEEK_SET);
+        fread(&content, sizeof(content), 1, file);
+        printf("%s\n", content);
+        token = strtok(content, ",");
+        index = 0;
+        while (token != NULL) {
+            subdirs[index] = token;
+            index++;
+            token = strtok(NULL, "/");
+        }     
+        
+        
+        for (int j = 0; j < index; j++) {
+             if (strcmp(subdirs[j], path[i+1]) == 0) {
+                    ok = 1;
+             }
+        }      
+        
+        if (!ok) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 int main(int argc, char** argv){
 
 	if (argc != 2) {
@@ -91,12 +136,12 @@ int main(int argc, char** argv){
     }
 
     FILE* file;
-    struct directory_item root_a, root_b, root_c;
+    struct directory_item root_a, root_b, root_c, root_d, root_e, root_f;
     //smazani /0 u stringu
     memset(desc.signature, '\0', sizeof(desc.signature));
     desc.cluster_size = 256;
     desc.cluster_count = 252;
-    desc.dir_entry_count = 3;
+    desc.dir_entry_count = 6;
     strcpy(desc.signature, name);
     printf("name: %s\n", desc.signature);
 
@@ -122,10 +167,29 @@ int main(int argc, char** argv){
     root_c.isFile = 0;
     strcpy(root_c.item_name, "direct-1");
     root_c.size = 0;
-    root_c.start_cluster = 28;
+    root_c.start_cluster = 29;
+
+    memset(root_d.item_name, '\0', sizeof(root_d.item_name));
+    root_d.isFile = 1;
+    strcpy(root_d.item_name, "cisla1.txt");
+    root_d.size = 135;
+    root_d.start_cluster = 30;
+
+    memset(root_e.item_name, '\0', sizeof(root_e.item_name));
+    root_e.isFile = 0;
+    strcpy(root_e.item_name, "subdir");
+    root_e.size = 0;
+    root_e.start_cluster = 31;
+
+    memset(root_f.item_name, '\0', sizeof(root_f.item_name));
+    root_f.isFile = 1;
+    strcpy(root_f.item_name, "hoven.txt");
+    root_f.size = 56;
+    root_f.start_cluster = 32;
 
     char cluster_empty[desc.cluster_size];
     char cluster_dir1[desc.cluster_size];
+    char cluster_dir2[desc.cluster_size];
     char cluster_a[desc.cluster_size];
     char cluster_b1[desc.cluster_size];
     char cluster_b2[desc.cluster_size];
@@ -153,6 +217,13 @@ int main(int argc, char** argv){
     char cluster_b24[desc.cluster_size];
     char cluster_c1[desc.cluster_size];
     char cluster_c2[desc.cluster_size];
+    char cluster_hoven[desc.cluster_size];
+    memset(cluster_hoven, '\0', sizeof(cluster_hoven));
+    strcpy(cluster_hoven, "www.youtube.com/watch?v=qJTwTYgouQY&ab_channel=VNEUMICKY");
+
+    char cluster_cccc[desc.cluster_size];
+    memset(cluster_cccc, '\0', sizeof(cluster_cccc));
+    strcpy(cluster_cccc, "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789 - tohle je malicky soubor pro test");
 
     memset(cluster_empty, '\0', sizeof(cluster_empty));
     memset(cluster_a, '\0', sizeof(cluster_a));
@@ -183,6 +254,7 @@ int main(int argc, char** argv){
     memset(cluster_c1, '\0', sizeof(cluster_c1));
     memset(cluster_c2, '\0', sizeof(cluster_c2));
     memset(cluster_dir1, '\0', sizeof(cluster_dir1));
+    memset(cluster_dir2, '\0', sizeof(cluster_dir2));
     strcpy(cluster_a, "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789 - tohle je malicky soubor pro test");
     strcpy(cluster_b1, "Byla jednou jedna sladka divenka, kterou musel milovat kazdy, jen ji uvidel, ale nejvice ji milovala jeji babicka, ktera by ji snesla i modre z nebe. Jednou ji darovala cepecek karkulku z cerveneho sametu a ten se vnucce tak libil, ze nic jineho nechtela ");
     strcpy(cluster_b2, "nosit, a tak ji zacali rikat Cervena Karkulka. Jednou matka Cervene Karkulce rekla: „Podivej, Karkulko, tady mas kousek kolace a lahev vina, zanes to babicce, je nemocna a zeslabla, timhle se posilni. Vydej se na cestu drive nez bude horko, jdi hezky spor");
@@ -210,6 +282,8 @@ int main(int argc, char** argv){
     strcpy(cluster_b24, "tak daleko, ze se na strese vice neudrzel a zacal klouzat dolù, kde spadnul primo do necek a bidne se utopil.");
     strcpy(cluster_c1, "Prodej aktiv SABMilleru v Ceske republice, Polsku, Maïarsku, Rumunsku a na Slovensku je soucasti podminek pro prevzeti podniku ze strany americkeho pivovaru Anheuser-Busch InBev, ktere bylo dokonceno v rijnu. Krome Plzeòskeho Prazdroje zahrnuji prodavana ");
     strcpy(cluster_c2, "aktiva polske znacky Tyskie a Lech, slovensky Topvar, maïarsky Dreher a rumunsky Ursus. - Tento soubor je sice kratky, ale neni fragmentovany");
+    strcpy(cluster_dir1, "cisla1.txt,subdir");
+    strcpy(cluster_dir2, "hoven.txt");
 
     //FAT TABULKA
     int32_t fat[desc.cluster_count];
@@ -244,8 +318,11 @@ int main(int argc, char** argv){
     fat[27] = FAT_UNUSED;
     fat[28] = FAT_UNUSED;
     fat[29] = FAT_FILE_END;
+    fat[30] = FAT_FILE_END;
+    fat[31] = FAT_FILE_END;
+    fat[32] = FAT_FILE_END;
 
-    for (int32_t i = 30; i < desc.cluster_count; i++)
+    for (int32_t i = 33; i < desc.cluster_count; i++)
     {
         fat[i] = FAT_UNUSED;
     }
@@ -266,6 +343,12 @@ int main(int argc, char** argv){
     ac_size += sizeof(root_b);
     fwrite(&root_c, sizeof(root_c), 1, file);
     ac_size += sizeof(root_c);
+    fwrite(&root_d, sizeof(root_d), 1, file);
+    ac_size += sizeof(root_d);
+    fwrite(&root_e, sizeof(root_e), 1, file);
+    ac_size += sizeof(root_e);
+    fwrite(&root_f, sizeof(root_f), 1, file);
+    ac_size += sizeof(root_f);
 
     char buffer[] = { '\0' };
     for (int16_t i = 0; i < (cl_size - ac_size); i++) {
@@ -304,21 +387,26 @@ int main(int argc, char** argv){
     fwrite(&cluster_empty, sizeof(cluster_empty), 1, file);
     fwrite(&cluster_empty, sizeof(cluster_empty), 1, file);
 
-    fwrite(&cluster_dir1, sizeof(cluster_dir1), 1, file);
 
-    for (long i = 30; i < desc.cluster_count; i++)
+    fwrite(&cluster_dir1, sizeof(cluster_dir1), 1, file);
+    fwrite(&cluster_cccc, sizeof(cluster_cccc), 1, file);
+    fwrite(&cluster_dir2, sizeof(cluster_dir2), 1, file);
+    fwrite(&cluster_hoven, sizeof(cluster_hoven), 1, file);
+
+    for (long i = 33; i < desc.cluster_count; i++)
     {
         fwrite(&cluster_empty, sizeof(cluster_empty), 1, file);
     }
 
-    char vstup [30];
+    char vstup [50];
     char fce [10];
     char param1[20];
-    char param2[20];
+    char param2[50];
     char* token;
     char* rest = NULL;    
+    char* path[MAX_DIR_IMMERSION];
     int prikaz;
-    int offset;
+    int offset, index;
     directory_item dir;
     int32_t fat_tab[desc.cluster_count];
     char enter;
@@ -328,9 +416,9 @@ int main(int argc, char** argv){
        memset(&param1, '\0', sizeof(param1));
        memset(&param2, '\0', sizeof(param2));
        
-        fgets(vstup, 30, stdin);
-        printf("vstup: %s\n", vstup);
+        fgets(vstup, 50, stdin);
         vstup[strcspn(vstup, "\n")] = 0;
+        printf("vstup: %s\n", vstup);
         token = strtok_r(vstup, " ", &rest);
         
         strcpy(fce, token);
@@ -355,7 +443,25 @@ int main(int argc, char** argv){
 
         switch (prikaz){
         
-        case 1:         
+        case 1:
+            token = strtok(param2, "/");
+            index = 0;
+            while (token != NULL) {
+                path[index] = token;
+                index++;
+                token = strtok(NULL, "/");
+            }          
+            
+            if (isValidPath(file, path, index)) {
+                dir = get_directory_item(file, param1);
+                get_fat(file, fat_tab);
+                copyFile(dir, fat_tab, file, param2);
+            }else{
+                printf("Nevalidní cesta ke složce\n");
+            }
+            break;
+
+        case 7:         
             printf("file: %s\n", param1);        
             dir = get_directory_item(file, param1);          
             get_fat(file, fat_tab);
@@ -385,6 +491,9 @@ int getPrikaz(char * vstup) {
     token = strtok(vstup, " ");
     
     if (strcmp(vstup, "cat") == 0) {
+        return 7;
+    }
+    if (strcmp(vstup, "cp") == 0) {
         return 1;
     }
     if (strcmp(vstup, "exit") == 0) {
