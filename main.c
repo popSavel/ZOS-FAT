@@ -211,8 +211,7 @@ void deleteFile(directory_item dir, int32_t* fat_tab, FILE* file) {
             item.start_cluster = 0;
             fseek(file, offset, SEEK_SET);
             fwrite(&item, sizeof(item), 1, file);
-            i = desc.dir_entry_count;
-            desc.dir_entry_count--;
+            i = desc.dir_entry_count;           
         }
     }
 
@@ -278,6 +277,7 @@ int main(int argc, char** argv) {
     }
 
     const char* name = argv[1];
+    char path_actual[] = "/root";
 
     if (strlen(name) > 9) {
         printf("Name must be maximum 9 characters long!!");
@@ -606,8 +606,7 @@ int main(int argc, char** argv) {
             }
 
             if (isValidPath(file, path, index - 2) && index > 1) {
-                
-                 
+                                 
             dir = get_directory_item(file, param1);
                 if (strcmp(dir.item_name, null) == 0) {
                     printf("FILE NOT FOUND\n");
@@ -635,11 +634,19 @@ int main(int argc, char** argv) {
                 deleteFile(dir, fat_tab, file);
             }
             break;
+        case 6:
+            if (strcmp(param1, null) == 0) {
+                printf("bez para");
+            }
+            else {
+                printf("s para");
+            }
+            break;
         case 7:
             if (strchr(param1, '/') != NULL) {
                 getFileName(file, param1);                
             }
-            dir = get_directory_item(file, param1);            
+            dir = get_directory_item(file, param1);           
             if (strcmp(dir.item_name, null) == 0 || dir.isFile == 0) {
                 printf("FILE NOT FOUND\n");
                 break;
@@ -649,6 +656,10 @@ int main(int argc, char** argv) {
                 printFile(dir, fat_tab, file);
                 break;
             }
+
+        case 9:
+            printf("%s> ", path_actual);
+            break;
 
         case 15:
             printf("Neplatny prikaz\n");
@@ -672,15 +683,20 @@ int main(int argc, char** argv) {
     int getPrikaz(char* vstup) {
         char* token;
         token = strtok(vstup, " ");
-
-        if (strcmp(vstup, "cat") == 0) {
-            return 7;
-        }
         if (strcmp(vstup, "cp") == 0) {
             return 1;
         }
         if (strcmp(vstup, "rm") == 0) {
             return 3;
+        }
+        if (strcmp(vstup, "ls") == 0) {
+            return 6;
+        }
+        if (strcmp(vstup, "cat") == 0) {
+            return 7;
+        }
+        if (strcmp(vstup, "pwd") == 0) {
+            return 9;
         }
         if (strcmp(vstup, "exit") == 0) {
             return 16;
