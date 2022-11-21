@@ -42,8 +42,13 @@ struct description desc;
 
 int getPrikaz(char* vstup);
 
-void copyFile(directory_item dir, int32_t *fat_tab, FILE* file, char* cesta) {
-    printf("kopiruju soubor: %s, do: %s\n", dir.item_name, cesta);
+int getEmptyCl(int32_t* fat_tab) {
+    for (int i = 0; i < desc.cluster_count; i++) {
+        if (fat_tab[i] == FAT_UNUSED) {
+            return i;
+        }
+    }
+    return -1;
 }
 
 void printFile(directory_item dir, int32_t *fat_tab, FILE* file) {
@@ -78,6 +83,7 @@ directory_item get_directory_item(FILE* file, char* name) {
             return dir;
         }
     }
+    memset(dir.item_name, '\0', sizeof(dir.item_name));
     return dir;
 }
 
@@ -89,22 +95,18 @@ int isValidPath(FILE* file, char* path[], int length) {
     char* token;
     int index;
     int ok;
-    if (length < 2) {
-        return 1;
-    }
-    for (int i = 0; i < length - 1; i++) {
+    for (int i = 0; i < length; i++) {
         ok = 0;
-        dir = get_directory_item(file, path[i]);
+        dir = get_directory_item(file, path[i]);               
         adress += dir.start_cluster * desc.cluster_size;
         fseek(file, adress, SEEK_SET);
         fread(&content, sizeof(content), 1, file);
-        printf("%s\n", content);
         token = strtok(content, ",");
         index = 0;
         while (token != NULL) {
             subdirs[index] = token;
             index++;
-            token = strtok(NULL, "/");
+            token = strtok(NULL, ",");
         }     
         
         
@@ -121,14 +123,161 @@ int isValidPath(FILE* file, char* path[], int length) {
     return 1;
 }
 
-int main(int argc, char** argv){
+void getFileName(FILE* file, char* param1) {
+    char* path[MAX_DIR_IMMERSION];
+    char* token = strtok(param1, "/");
+    int index = 0;
+    while (token != NULL) {
+        path[index] = token;
+        index++;
+        token = strtok(NULL, "/");
+    }
+    if (isValidPath(file, path, index - 1)) {
+        strcpy(param1, path[index - 1]);
+    }
+    else {
+        memset(param1, '\0', sizeof(param1));
+    }
+}
 
-	if (argc != 2) {
-		printf("Wrong number of parameters!!");
-		return -1;
-	}
+void copyFile(directory_item dir, int32_t* fat_tab, FILE* file, char** cesta, int size) {
+    printf("kopiruju soubor: %s, do: %s\n", dir.item_name, cesta[size - 2]);
+    char content[desc.cluster_size];
+    struct directory_item new_file;
+    memset(new_file.item_name, '\0', sizeof(new_file.item_name));
+    new_file.isFile = 1;
+    strcpy(new_file.item_name, cesta[size - 1]);
+    new_file.size = dir.size;
+    new_file.start_cluster = getEmptyCl(fat_tab);
 
-	const char* name = argv[1];
+    int ptr = dir.start_cluster;
+    int new_ptr = new_file.start_cluster;
+    int prev_ptr = 0;
+    int start_adress = desc.data_start_address + desc.cluster_size;
+    int adress;
+    char out[desc.cluster_size];
+    int tmp;
+
+    do {
+        adress = start_adress + ptr * desc.cluster_size;
+        fseek(file, adress, SEEK_SET);
+        fread(&out, sizeof(out), 1, file);
+
+        adress = start_adress + new_ptr * desc.cluster_size;
+        fseek(file, adress, SEEK_SET);
+        fwrite(&out, sizeof(out), 1, file);
+
+        ptr = fat_tab[ptr];
+        if (prev_ptr != 0) {
+            fat_tab[prev_ptr] = new_ptr;
+        }
+        fat_tab[new_ptr] = FAT_FILE_END;
+        prev_ptr = new_ptr;
+        new_ptr = getEmptyCl(fat_tab);
+    } while (ptr != FAT_FILE_END);
+
+    struct directory_item subdir = get_directory_item(file, cesta[size - 2]);
+    adress = start_adress + subdir.start_cluster * desc.cluster_size;
+    fseek(file, adress, SEEK_SET);
+    fread(&content, sizeof(content), 1, file);
+    strcpy(content, ",");
+    strcpy(content, new_file.item_name);
+    fwrite(&content, sizeof(content), 1, file);
+
+    adress = desc.data_start_address + desc.dir_entry_count * sizeof(directory_item);
+    desc.dir_entry_count++;
+    fseek(file, adress, SEEK_SET);
+    fwrite(&new_file, sizeof(new_file), 1, file);  
+
+    for (int i = 0; i < desc.cluster_count; i++) {
+        fseek(file, desc.fat1_start_address + (i * sizeof(int32_t)), SEEK_SET);
+        fwrite(&fat_tab[i], sizeof(int32_t), 1, file);     
+    }
+
+}
+
+void deleteFile(directory_item dir, int32_t* fat_tab, FILE* file) {
+    printf("odstranuji: %s\n", dir.item_name);
+    int offset;
+    struct directory_item item;
+    for (int i = 0; i < desc.dir_entry_count; i++) {
+        offset = desc.data_start_address + sizeof(directory_item) * i;
+        fseek(file, offset, SEEK_SET);
+        fread(&item, sizeof(struct directory_item), 1, file);        
+        if (strcmp(item.item_name, dir.item_name) == 0) {
+            memset(item.item_name, '\0', sizeof(item.item_name));
+            item.isFile = 0;
+            item.size = 0;
+            item.start_cluster = 0;
+            fseek(file, offset, SEEK_SET);
+            fwrite(&item, sizeof(item), 1, file);
+            i = desc.dir_entry_count;
+            desc.dir_entry_count--;
+        }
+    }
+
+    int ptr = dir.start_cluster;
+    int tmp;
+    int start_adress = desc.data_start_address + desc.cluster_size;
+    int adress;
+    char cluster_empty[desc.cluster_size];
+    memset(cluster_empty, '\0', sizeof(cluster_empty));
+    do {
+        adress = start_adress + ptr * desc.cluster_size;
+        fseek(file, adress, SEEK_SET);
+        fwrite(&cluster_empty, sizeof(cluster_empty), 1, file);
+        tmp = fat_tab[ptr];
+        fat_tab[ptr] = FAT_UNUSED;             
+        ptr = tmp;
+    } while (ptr != FAT_FILE_END);
+
+    for (int i = 0; i < desc.cluster_count; i++) {
+        fseek(file, desc.fat1_start_address + (i * sizeof(int32_t)), SEEK_SET);
+        fwrite(&fat_tab[i], sizeof(int32_t), 1, file);
+    }
+}
+
+void deleteFromDir(char* name, int32_t* fat_tab, FILE* file) {
+    struct directory_item dir;
+    char content[desc.cluster_size];
+    char new_content[desc.cluster_size];
+    char* token;
+    for (int i = 0; i < desc.dir_entry_count; i++) {
+        int offset = desc.data_start_address + sizeof(directory_item) * i;
+        fseek(file, offset, SEEK_SET);
+        fread(&dir, sizeof(struct directory_item), 1, file);
+        if (!dir.isFile) {
+            offset = desc.data_start_address + desc.cluster_size + dir.start_cluster * desc.cluster_size;
+            fseek(file, offset, SEEK_SET);
+            fread(&content, sizeof(content), 1, file);      
+            if (strstr(content, name) != NULL) {
+
+                token = strtok(content, ",");
+          
+                while (token != NULL) {
+                    if (strcmp(token, name) != 0) {                        
+                        strcat(new_content, token);
+                        strcat(new_content, ",");
+                    }                  
+                    token = strtok(NULL, ",");
+                }
+                new_content[strlen(new_content) - 1] = '\0';               
+                fseek(file, offset, SEEK_SET);
+                fwrite(&new_content, sizeof(new_content), 1, file);
+                return;
+            }
+        }
+    }
+}
+
+int main(int argc, char** argv) {
+
+    if (argc != 2) {
+        printf("Wrong number of parameters!!");
+        return -1;
+    }
+
+    const char* name = argv[1];
 
     if (strlen(name) > 9) {
         printf("Name must be maximum 9 characters long!!");
@@ -398,33 +547,34 @@ int main(int argc, char** argv){
         fwrite(&cluster_empty, sizeof(cluster_empty), 1, file);
     }
 
-    char vstup [50];
-    char fce [10];
+    char vstup[50];
+    char fce[10];
     char param1[20];
     char param2[50];
     char* token;
-    char* rest = NULL;    
+    char* rest = NULL;
     char* path[MAX_DIR_IMMERSION];
     int prikaz;
     int offset, index;
     directory_item dir;
     int32_t fat_tab[desc.cluster_count];
     char enter;
+    char null[5];
 
     while (true) {
-       memset(&vstup, '\0', sizeof(vstup));
-       memset(&param1, '\0', sizeof(param1));
-       memset(&param2, '\0', sizeof(param2));
-       
+        memset(&vstup, '\0', sizeof(vstup));
+        memset(&param1, '\0', sizeof(param1));
+        memset(&param2, '\0', sizeof(param2));
+
         fgets(vstup, 50, stdin);
         vstup[strcspn(vstup, "\n")] = 0;
         printf("vstup: %s\n", vstup);
         token = strtok_r(vstup, " ", &rest);
-        
+
         strcpy(fce, token);
-        
+
         token = strtok_r(NULL, " ", &rest);
-        
+
         if (token != NULL) {
             strcpy(param1, token);
             token = strtok_r(NULL, " ", &rest);
@@ -437,37 +587,69 @@ int main(int argc, char** argv){
                 }
             }
         }
-      
-        
+
+
         prikaz = getPrikaz(fce);
 
-        switch (prikaz){
-        
+        switch (prikaz) {
+
         case 1:
+            if (strchr(param1, '/') != NULL) {
+                getFileName(file, param1);
+            }
             token = strtok(param2, "/");
             index = 0;
             while (token != NULL) {
                 path[index] = token;
                 index++;
                 token = strtok(NULL, "/");
-            }          
-            
-            if (isValidPath(file, path, index)) {
-                dir = get_directory_item(file, param1);
-                get_fat(file, fat_tab);
-                copyFile(dir, fat_tab, file, param2);
-            }else{
-                printf("Nevalidní cesta ke složce\n");
+            }
+
+            if (isValidPath(file, path, index - 2) && index > 1) {
+                
+                 
+            dir = get_directory_item(file, param1);
+                if (strcmp(dir.item_name, null) == 0) {
+                    printf("FILE NOT FOUND\n");
+                    break;
+                }
+            get_fat(file, fat_tab);
+            copyFile(dir, fat_tab, file, path, index);
+            }
+            else {
+                printf("PATH NOT FOUND \n");
             }
             break;
-
-        case 7:         
-            printf("file: %s\n", param1);        
-            dir = get_directory_item(file, param1);          
-            get_fat(file, fat_tab);
-            printFile(dir, fat_tab, file);
+        case 3:
+            if (strchr(param1, '/') != NULL) {
+                getFileName(file, param1);
+            }
+            dir = get_directory_item(file, param1);
+            if (strcmp(dir.item_name, null) == 0 || dir.isFile == 0) {
+                printf("FILE NOT FOUND\n");
+                break;
+            }
+            else {
+                get_fat(file, fat_tab);               
+                deleteFromDir(dir.item_name, fat_tab, file);
+                deleteFile(dir, fat_tab, file);
+            }
             break;
-        
+        case 7:
+            if (strchr(param1, '/') != NULL) {
+                getFileName(file, param1);                
+            }
+            dir = get_directory_item(file, param1);            
+            if (strcmp(dir.item_name, null) == 0 || dir.isFile == 0) {
+                printf("FILE NOT FOUND\n");
+                break;
+            }
+            else {
+                get_fat(file, fat_tab);
+                printFile(dir, fat_tab, file);
+                break;
+            }
+
         case 15:
             printf("Neplatny prikaz\n");
             break;
@@ -481,26 +663,29 @@ int main(int argc, char** argv){
             return -1;
         }
     }
-    fclose(file);
+        fclose(file);
 
-	return 0;
-}
-
-int getPrikaz(char * vstup) {
-    char* token;
-    token = strtok(vstup, " ");
+        return 0;
     
-    if (strcmp(vstup, "cat") == 0) {
-        return 7;
-    }
-    if (strcmp(vstup, "cp") == 0) {
-        return 1;
-    }
-    if (strcmp(vstup, "exit") == 0) {
-        return 16;
-    }
-    else {
-        return 15;
-    }
 }
 
+    int getPrikaz(char* vstup) {
+        char* token;
+        token = strtok(vstup, " ");
+
+        if (strcmp(vstup, "cat") == 0) {
+            return 7;
+        }
+        if (strcmp(vstup, "cp") == 0) {
+            return 1;
+        }
+        if (strcmp(vstup, "rm") == 0) {
+            return 3;
+        }
+        if (strcmp(vstup, "exit") == 0) {
+            return 16;
+        }
+        else {
+            return 15;
+        }
+    }
