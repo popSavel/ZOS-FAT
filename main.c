@@ -55,13 +55,13 @@ void printFile(directory_item dir, int32_t *fat_tab, FILE* file) {
     int ptr = dir.start_cluster;
     int start_adress = desc.data_start_address + desc.cluster_size;
     int adress;
-    char out[desc.cluster_size];
+    char out[desc.cluster_size];    
     do {
-        adress = start_adress + ptr * desc.cluster_size;       
+        adress = start_adress + ptr * desc.cluster_size;
         fseek(file, adress, SEEK_SET);
         fread(&out, sizeof(out), 1, file);
         printf("%s",out);
-        ptr = fat_tab[ptr];
+        ptr = fat_tab[ptr];      
     } while (ptr != FAT_FILE_END);
 }
 
@@ -74,11 +74,10 @@ void get_fat(FILE* file, int32_t *fat_tab) {
 
 directory_item get_directory_item(FILE* file, char* name) {
     struct directory_item dir;
-    size_t numread;
     for (int i = 0; i < desc.dir_entry_count; i++) {
         int offset = desc.data_start_address + sizeof(directory_item) * i;
         fseek(file, offset, SEEK_SET);
-        numread = fread(&dir, sizeof(struct directory_item), 1, file);
+        fread(&dir, sizeof(struct directory_item), 1, file);
         if (strcmp(name, dir.item_name) == 0) {     
             return dir;
         }
@@ -269,6 +268,14 @@ void deleteFromDir(char* name, int32_t* fat_tab, FILE* file) {
     }
 }
 
+void getActDirectory(FILE* file, char *path_actual, char *dir_name) {    
+    char* token = strtok(path_actual, "/");
+    while (token != NULL) {
+        strcpy(dir_name, token);       
+        token = strtok(NULL, "/");
+    }
+}
+
 int main(int argc, char** argv) {
 
     if (argc != 2) {
@@ -285,23 +292,30 @@ int main(int argc, char** argv) {
     }
 
     FILE* file;
+    struct directory_item root_dir;
     struct directory_item root_a, root_b, root_c, root_d, root_e, root_f;
     //smazani /0 u stringu
     memset(desc.signature, '\0', sizeof(desc.signature));
     desc.cluster_size = 256;
     desc.cluster_count = 252;
-    desc.dir_entry_count = 6;
+    desc.dir_entry_count = 7;
     strcpy(desc.signature, name);
     printf("name: %s\n", desc.signature);
 
     /*
     * vytvoøení root položek
     */
+    memset(root_dir.item_name, '\0', sizeof(root_dir.item_name));
+    root_dir.isFile = 0;
+    strcpy(root_dir.item_name, "root");
+    root_dir.size = 0;
+    root_dir.start_cluster = 0;
+
     memset(root_a.item_name, '\0', sizeof(root_a.item_name));
     root_a.isFile = 1;
     strcpy(root_a.item_name, "cisla.txt");
     root_a.size = 135;
-    root_a.start_cluster = 0;
+    root_a.start_cluster = 25;
 
     memset(root_b.item_name, '\0', sizeof(root_b.item_name));
     root_b.isFile = 1;
@@ -336,6 +350,7 @@ int main(int argc, char** argv) {
     root_f.size = 56;
     root_f.start_cluster = 32;
 
+    char cluster_root[desc.cluster_size];
     char cluster_empty[desc.cluster_size];
     char cluster_dir1[desc.cluster_size];
     char cluster_dir2[desc.cluster_size];
@@ -367,6 +382,10 @@ int main(int argc, char** argv) {
     char cluster_c1[desc.cluster_size];
     char cluster_c2[desc.cluster_size];
     char cluster_hoven[desc.cluster_size];
+
+    memset(cluster_root, '\0', sizeof(cluster_root));
+    strcpy(cluster_root, "pohadka.txt,cisla.txt,direct-1");
+
     memset(cluster_hoven, '\0', sizeof(cluster_hoven));
     strcpy(cluster_hoven, "www.youtube.com/watch?v=qJTwTYgouQY&ab_channel=VNEUMICKY");
 
@@ -462,7 +481,7 @@ int main(int argc, char** argv) {
     fat[22] = 23;
     fat[23] = 24;
     fat[24] = FAT_FILE_END;
-    fat[25] = FAT_UNUSED;
+    fat[25] = FAT_FILE_END;
     fat[26] = FAT_UNUSED;
     fat[27] = FAT_UNUSED;
     fat[28] = FAT_UNUSED;
@@ -486,6 +505,8 @@ int main(int argc, char** argv) {
     int16_t cl_size = desc.cluster_size;
     int16_t ac_size = 0;
 
+    fwrite(&root_dir, sizeof(root_dir), 1, file);
+    ac_size += sizeof(root_dir);
     fwrite(&root_a, sizeof(root_a), 1, file);
     ac_size += sizeof(root_a);
     fwrite(&root_b, sizeof(root_b), 1, file);
@@ -504,7 +525,7 @@ int main(int argc, char** argv) {
         fwrite(buffer, sizeof(buffer), 1, file);
     }
 
-    fwrite(&cluster_a, sizeof(cluster_a), 1, file);
+    fwrite(&cluster_root, sizeof(cluster_root), 1, file);
 
     fwrite(&cluster_b1, sizeof(cluster_b1), 1, file);
     fwrite(&cluster_b2, sizeof(cluster_b2), 1, file);
@@ -531,7 +552,7 @@ int main(int argc, char** argv) {
     fwrite(&cluster_b23, sizeof(cluster_b23), 1, file);
     fwrite(&cluster_b24, sizeof(cluster_b24), 1, file);
 
-    fwrite(&cluster_empty, sizeof(cluster_empty), 1, file);
+    fwrite(&cluster_a, sizeof(cluster_a), 1, file);
     fwrite(&cluster_empty, sizeof(cluster_empty), 1, file);
     fwrite(&cluster_empty, sizeof(cluster_empty), 1, file);
     fwrite(&cluster_empty, sizeof(cluster_empty), 1, file);
@@ -635,11 +656,35 @@ int main(int argc, char** argv) {
             }
             break;
         case 6:
+            char dir_name[13];
             if (strcmp(param1, null) == 0) {
-                printf("bez para");
+                getActDirectory(file, path_actual, dir_name);               
+                dir = get_directory_item(file, dir_name);                
+                get_fat(file, fat_tab);
+                printFile(dir, fat_tab, file);
+                printf("\n");
             }
             else {
-                printf("s para");
+                token = strtok(param1, "/");
+                index = 0;
+                while (token != NULL) {
+                    path[index] = token;
+                    index++;
+                    token = strtok(NULL, "/");
+                }                
+                if (isValidPath(file, path, index - 1)) {
+                    dir = get_directory_item(file, path[index-1]);                   
+                    if (dir.isFile) {
+                        printf("PATH NOT FOUND\n");
+                    }
+                    else {
+                        get_fat(file, fat_tab);
+                        printFile(dir, fat_tab, file);
+                    }
+                }
+                else {
+                    printf("PATH NOT FOUND\n");
+                }
             }
             break;
         case 7:
