@@ -268,10 +268,11 @@ void deleteFromDir(char* name, int32_t* fat_tab, FILE* file) {
     }
 }
 
-void getActDirectory(FILE* file, char *path_actual, char *dir_name) {    
+
+void getActDirectory(FILE* file, char *path_actual, char *dir_name) {
     char* token = strtok(path_actual, "/");
     while (token != NULL) {
-        strcpy(dir_name, token);       
+        strcpy(dir_name, token);
         token = strtok(NULL, "/");
     }
 }
@@ -658,8 +659,9 @@ int main(int argc, char** argv) {
         case 6:
             char dir_name[13];
             if (strcmp(param1, null) == 0) {
-                getActDirectory(file, path_actual, dir_name);               
-                dir = get_directory_item(file, dir_name);                
+                getActDirectory(file, path_actual, dir_name);      
+                printf("dirname %s\n", dir_name);
+                dir = get_directory_item(file, dir_name);
                 get_fat(file, fat_tab);
                 printFile(dir, fat_tab, file);
                 printf("\n");
@@ -702,6 +704,44 @@ int main(int argc, char** argv) {
                 break;
             }
 
+        case 8:
+            token = strtok(param1, "/");
+            index = 0;
+            while (token != NULL) {
+                path[index] = token;
+                index++;
+                token = strtok(NULL, "/");
+            }
+            dir = get_directory_item(file, path[index-1]);
+            if (dir.isFile) {
+                printf("PATH NOT FOUND\n");
+            }
+            else{
+                if (isValidPath(file, path, index-1)) {
+                    char* directories[MAX_DIR_IMMERSION];
+                    token = strtok(path_actual, "/");
+                    index = 0;
+                    while (token != NULL) {
+                        directories[index] = token;
+                        index++;
+                        token = strtok(NULL, "/");
+                    }
+                    dir = get_directory_item(file, directories[index - 1]);
+                    char subdirs[desc.cluster_size];
+                    int dir_adress = desc.data_start_address + desc.cluster_size + (dir.start_cluster * desc.cluster_size);
+                    fseek(file, dir_adress, SEEK_SET);
+                    fread(&subdirs, sizeof(subdirs), 1, file);
+                    if (strstr(subdirs, path[0]) != NULL) {
+                        for (int i = 0; i < index; i++) {
+                            strcat(path_actual, "/");
+                            strcat(path_actual, path[i]);                           
+                        }
+                        printf("%s> ", path_actual);
+                    }
+                }               
+            }   
+            break;
+
         case 9:
             printf("%s> ", path_actual);
             break;
@@ -711,7 +751,7 @@ int main(int argc, char** argv) {
             break;
 
         case 16:
-            printf("KOnec\n");
+            printf("Konec\n");
             return 0;
 
         default:
@@ -739,6 +779,9 @@ int main(int argc, char** argv) {
         }
         if (strcmp(vstup, "cat") == 0) {
             return 7;
+        }
+        if (strcmp(vstup, "cd") == 0) {
+            return 8;
         }
         if (strcmp(vstup, "pwd") == 0) {
             return 9;
