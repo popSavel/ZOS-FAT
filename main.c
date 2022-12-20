@@ -96,7 +96,8 @@ int isValidPath(FILE* file, char* path[], int length) {
     int ok;
     for (int i = 0; i < length; i++) {
         ok = 0;
-        dir = get_directory_item(file, path[i]);               
+        dir = get_directory_item(file, path[i]);
+        adress = desc.data_start_address + desc.cluster_size;
         adress += dir.start_cluster * desc.cluster_size;
         fseek(file, adress, SEEK_SET);
         fread(&content, sizeof(content), 1, file);
@@ -106,8 +107,12 @@ int isValidPath(FILE* file, char* path[], int length) {
             subdirs[index] = token;
             index++;
             token = strtok(NULL, ",");
-        }     
-        
+        }
+        if (index == 0) {
+            if (strcmp(content, path[i + 1]) == 0) {
+                ok = 1;
+            }
+        }    
         
         for (int j = 0; j < index; j++) {
              if (strcmp(subdirs[j], path[i+1]) == 0) {
@@ -115,7 +120,7 @@ int isValidPath(FILE* file, char* path[], int length) {
              }
         }      
         
-        if (!ok) {
+        if (ok == 0) {
             return 0;
         }
     }
@@ -130,7 +135,7 @@ void getFileName(FILE* file, char* param1) {
         path[index] = token;
         index++;
         token = strtok(NULL, "/");
-    }
+    }  
     if (isValidPath(file, path, index - 1)) {
         strcpy(param1, path[index - 1]);
     }
@@ -277,37 +282,55 @@ void getActDirectory(FILE* file, char *path_actual, char *dir_name) {
     }
 }
 
-void moveFile(directory_item dir, int32_t* fat_tab, FILE* file, char** cesta, int size) {
-    printf("presunuji soubor %s do %s\n", dir.item_name, cesta[size - 2]);
-}
-
-void renameFile(directory_item dir, directory_item actual_dir, int32_t* fat_tab, FILE* file, char* new_name) {
+void moveFile(directory_item dir, directory_item src, directory_item dest, int32_t* fat_tab, FILE* file, char* new_name) {
+    printf("presunuji soubor - %s ze - %s do - %s se jmenem - %s\n", dir.item_name, src.item_name, dest.item_name, new_name);
     directory_item item;
-    int adress = desc.data_start_address;
     char content[desc.cluster_size];
     char old_name[13];
-    strcpy(old_name, dir.item_name);
-    printf("prejmenovavam %s na %s\n", dir.item_name, new_name);
-    strcpy(dir.item_name, new_name);
+    int adress = desc.data_start_address;
+
     fseek(file, adress, SEEK_SET);
-    fwrite(&item, sizeof(item), 1, file);
+    fread(&item, sizeof(item), 1, file);
     while (strcmp(item.item_name, dir.item_name) != 0) {
         adress += sizeof(directory_item);
         fseek(file, adress, SEEK_SET);
         fread(&item, sizeof(item), 1, file);
     }
+    strcpy(old_name, dir.item_name);
+    strcpy(dir.item_name, new_name);
     fseek(file, adress, SEEK_SET);
     fwrite(&dir, sizeof(dir), 1, file);
 
-   // item = get_directory_item(file, actual_dir);
-    adress = desc.data_start_address + actual_dir.start_cluster * desc.cluster_size;
+    adress = desc.data_start_address + desc.cluster_size + (src.start_cluster * desc.cluster_size);
     fseek(file, adress, SEEK_SET);
     fread(&content, sizeof(content), 1, file);
 
-    printf("pred %s\n", content);
-    memmove(content, old_name, strlen(old_name) + 1);
-    printf("po %s\n", content);
+    char* pos = strstr(content, old_name);
+    int position = pos - content;
 
+    int len = strlen(old_name);
+    char* p = content;
+    while ((p = strstr(p, old_name)) != NULL) {
+        memmove(p, p + len, strlen(p + len) + 1);
+    }
+    memmove(&content[position], &content[position + 1], strlen(content) - position);
+    if (position == strlen(content)) {
+        position--;
+        memmove(&content[position], &content[position + 1], strlen(content) - position);
+    }
+    fseek(file, adress, SEEK_SET);
+    fwrite(&content, sizeof(content), 1, file);
+
+    adress = desc.data_start_address + desc.cluster_size + (dest.start_cluster * desc.cluster_size);
+    fseek(file, adress, SEEK_SET);
+    fread(&content, sizeof(content), 1, file);
+
+    strcat(new_name, ",");
+    strcat(new_name, content);
+    strcpy(content, new_name);
+
+    fseek(file, adress, SEEK_SET);
+    fwrite(&content, sizeof(content), 1, file);
 }
 
 int main(int argc, char** argv) {
@@ -652,6 +675,7 @@ int main(int argc, char** argv) {
             if (strchr(param1, '/') != NULL) {
                 getFileName(file, param1);
             }
+
             token = strtok(param2, "/");
             index = 0;
             while (token != NULL) {
@@ -676,11 +700,43 @@ int main(int argc, char** argv) {
             break;
 
         case 2:
+            directory_item src;
+            directory_item dest;
             if (strchr(param1, '/') != NULL) {
-                getFileName(file, param1);
+                token = strtok(param1, "/");
+                index = 0;
+                while (token != NULL) {
+                    path[index] = token;
+                    index++;
+                    token = strtok(NULL, "/");
+                }                
+                if (isValidPath(file, path, index - 1)) {   
+                  
+                    char* s = strdup(path[index - 1]);
+                    strcpy(param1, path[index - 2]);
+                    dir = get_directory_item(file, s);                              
+                    src = get_directory_item(file, param1);
+                    printf("devko: %s\n", s);
+                    printf("devko: %s\n",param1);
+                }
+                else {    
+                    printf("FILE NOT FOUND\n");
+                    break;
+                }
             }
+            else {
+                dir = get_directory_item(file, param1);
+                getActDirectory(file, path_actual, param1);
+                src = get_directory_item(file, param1);
+            }
+
+            if (strcmp(dir.item_name, null) == 0 || strcmp(src.item_name, null) == 0) {
+                printf("2");
+                printf("FILE NOT FOUND\n");
+                break;
+            }
+
             if (strchr(param2, '/') != NULL) {
-                printf("grgrg\n");
                 token = strtok(param2, "/");
                 index = 0;
                 while (token != NULL) {
@@ -689,46 +745,24 @@ int main(int argc, char** argv) {
                     token = strtok(NULL, "/");
                 }
                 if (isValidPath(file, path, index - 2) && index > 1) {
-                    if (strcmp(dir.item_name, null) == 0) {
-                        printf("FILE NOT FOUND\n");
-                        break;
-                    }
-                    get_fat(file, fat_tab);
+                    strcpy(param2, path[index - 2]);
+                    dest = get_directory_item(file, param2);
+                    strcpy(param2, path[index - 1]);
                 }
                 else {
                     printf("PATH NOT FOUND \n");
-                }
-                break;
+                    break;
+                }               
             }
-            else {
-                dir = get_directory_item(file, param1);
-                printf("soubor na rename: %s\n", dir.item_name);
-                //strcpy(dir.item_name, param2);
-                getActDirectory(file, path_actual, param1);
-                //dir = get_directory_item(file, param1);
-                printf("actualni dir: %s\n", dir.item_name);
-
-                /*
-                adress = start_adress + subdir.start_cluster * desc.cluster_size;
-                fseek(file, adress, SEEK_SET);
-                fread(&content, sizeof(content), 1, file);
-                strcpy(content, ",");
-                strcpy(content, new_file.item_name);
-                fwrite(&content, sizeof(content), 1, file);
-                */
-
-                directory_item actual_dir;
-                actual_dir = get_directory_item(file, param1);
-                get_fat(file, fat_tab);
-                renameFile(dir, actual_dir, fat_tab, file, param2);
-                /*
-                printf("ok\n");
-                char dest[13];
-                getActDirectory(file, path_actual, dest);
-                printf("ok\n");
-                moveFile(dir, fat_tab, file, path, 2);*/
-                break;
+            else { 
+                getActDirectory(file, path_actual, param1);                                      
+                dest = get_directory_item(file, param1);
+                //renameFile(dir, actual_dir, fat_tab, file, param2);                
+                
             }
+            get_fat(file, fat_tab);
+            moveFile(dir, src, dest, fat_tab, file, param2);
+            break;
 
         case 3:
             if (strchr(param1, '/') != NULL) {
