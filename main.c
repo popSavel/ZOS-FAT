@@ -281,11 +281,11 @@ void moveFile(directory_item dir, int32_t* fat_tab, FILE* file, char** cesta, in
     printf("presunuji soubor %s do %s\n", dir.item_name, cesta[size - 2]);
 }
 
-void renameFile(directory_item dir, int32_t* fat_tab, FILE* file, char* new_name, char * act_dir) {
+void renameFile(directory_item dir, directory_item actual_dir, int32_t* fat_tab, FILE* file, char* new_name) {
     directory_item item;
     int adress = desc.data_start_address;
     char content[desc.cluster_size];
-    char* old_name;
+    char old_name[13];
     strcpy(old_name, dir.item_name);
     printf("prejmenovavam %s na %s\n", dir.item_name, new_name);
     strcpy(dir.item_name, new_name);
@@ -299,12 +299,11 @@ void renameFile(directory_item dir, int32_t* fat_tab, FILE* file, char* new_name
     fseek(file, adress, SEEK_SET);
     fwrite(&dir, sizeof(dir), 1, file);
 
-    item = get_directory_item(file, act_dir);
-    adress = desc.data_start_address + item.start_cluster * desc.cluster_size;
+   // item = get_directory_item(file, actual_dir);
+    adress = desc.data_start_address + actual_dir.start_cluster * desc.cluster_size;
     fseek(file, adress, SEEK_SET);
     fread(&content, sizeof(content), 1, file);
 
-    int ptr = strstr(content, old_name);
     printf("pred %s\n", content);
     memmove(content, old_name, strlen(old_name) + 1);
     printf("po %s\n", content);
@@ -702,26 +701,26 @@ int main(int argc, char** argv) {
                 break;
             }
             else {
-                printf("ok\n");
                 dir = get_directory_item(file, param1);
                 printf("soubor na rename: %s\n", dir.item_name);
-                strcpy(dir.item_name, param2);
+                //strcpy(dir.item_name, param2);
                 getActDirectory(file, path_actual, param1);
-                dir = get_directory_item(file, param1);
+                //dir = get_directory_item(file, param1);
                 printf("actualni dir: %s\n", dir.item_name);
 
-
+                /*
                 adress = start_adress + subdir.start_cluster * desc.cluster_size;
                 fseek(file, adress, SEEK_SET);
                 fread(&content, sizeof(content), 1, file);
                 strcpy(content, ",");
                 strcpy(content, new_file.item_name);
                 fwrite(&content, sizeof(content), 1, file);
+                */
 
-
-
+                directory_item actual_dir;
+                actual_dir = get_directory_item(file, param1);
                 get_fat(file, fat_tab);
-                renameFile(dir, fat_tab, file, param2, param1);
+                renameFile(dir, actual_dir, fat_tab, file, param2);
                 /*
                 printf("ok\n");
                 char dest[13];
