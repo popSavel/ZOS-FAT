@@ -275,7 +275,9 @@ void deleteFromDir(char* name, int32_t* fat_tab, FILE* file) {
 
 
 void getActDirectory(FILE* file, char *path_actual, char *dir_name) {
-    char* token = strtok(path_actual, "/");
+    char s[strlen(path_actual)];
+    strcpy(s, path_actual);
+    char* token = strtok(s, "/");
     while (token != NULL) {
         strcpy(dir_name, token);
         token = strtok(NULL, "/");
@@ -341,7 +343,6 @@ int main(int argc, char** argv) {
     }
 
     const char* name = argv[1];
-    char path_actual[] = "/root";
 
     if (strlen(name) > 9) {
         printf("Name must be maximum 9 characters long!!");
@@ -638,6 +639,9 @@ int main(int argc, char** argv) {
     int32_t fat_tab[desc.cluster_count];
     char enter;
     char null[5];
+    char path_actual[200]; 
+    //memset(&path_actual, '\0', sizeof(path_actual));
+    strcpy(path_actual, "/root");
 
     while (true) {
         memset(&vstup, '\0', sizeof(vstup));
@@ -666,8 +670,7 @@ int main(int argc, char** argv) {
             }
         }
 
-
-        prikaz = getPrikaz(fce);
+        prikaz = getPrikaz(fce);        
 
         switch (prikaz) {
 
@@ -756,8 +759,7 @@ int main(int argc, char** argv) {
             }
             else { 
                 getActDirectory(file, path_actual, param1);                                      
-                dest = get_directory_item(file, param1);
-                //renameFile(dir, actual_dir, fat_tab, file, param2);                
+                dest = get_directory_item(file, param1);                         
                 
             }
             get_fat(file, fat_tab);
@@ -780,11 +782,10 @@ int main(int argc, char** argv) {
             }
             break;
         case 6:
-            char dir_name[13];
             if (strcmp(param1, null) == 0) {
-                getActDirectory(file, path_actual, dir_name);      
-                printf("dirname %s\n", dir_name);
-                dir = get_directory_item(file, dir_name);
+                getActDirectory(file, path_actual, param1);      
+                printf("dirname %s\n", param1);
+                dir = get_directory_item(file, param1);
                 get_fat(file, fat_tab);
                 printFile(dir, fat_tab, file);
                 printf("\n");
@@ -827,43 +828,71 @@ int main(int argc, char** argv) {
                 break;
             }
 
-        case 8:
-            token = strtok(param1, "/");
-            index = 0;
-            while (token != NULL) {
-                path[index] = token;
-                index++;
-                token = strtok(NULL, "/");
-            }
-            dir = get_directory_item(file, path[index-1]);
-            if (dir.isFile) {
-                printf("PATH NOT FOUND\n");
-            }
-            else{
-                if (isValidPath(file, path, index-1)) {
-                    char* directories[MAX_DIR_IMMERSION];
-                    token = strtok(path_actual, "/");
-                    index = 0;
-                    while (token != NULL) {
-                        directories[index] = token;
-                        index++;
-                        token = strtok(NULL, "/");
+        case 8:    
+            if (strchr(param1, '/') != NULL) {              
+                token = strtok(param1, "/");
+                index = 0;
+                while (token != NULL) {
+                    path[index] = token;
+                    index++;
+                    token = strtok(NULL, "/");
+                }
+                dir = get_directory_item(file, path[index - 1]);
+                if (isValidPath(file, path, index - 1) && dir.isFile == 0) {
+                    strcpy(path_actual, "root");                 
+                    for (int i = 0; i < index; i++) {
+                        strcat(path_actual, "/");
+                        strcat(path_actual, path[i]);                        
+                    }                                       
+                }
+                else {
+                    getActDirectory(file, path_actual, param2);
+                    for (int i = index; i > 0; i--) {
+                        path[i] = path[i - 1];
                     }
-                    dir = get_directory_item(file, directories[index - 1]);
-                    char subdirs[desc.cluster_size];
-                    int dir_adress = desc.data_start_address + desc.cluster_size + (dir.start_cluster * desc.cluster_size);
-                    fseek(file, dir_adress, SEEK_SET);
-                    fread(&subdirs, sizeof(subdirs), 1, file);
-                    if (strstr(subdirs, path[0]) != NULL) {
-                        for (int i = 0; i < index; i++) {
+                    path[0] = param2;
+                    if (isValidPath(file, path, index - 1) && dir.isFile == 0) {
+                        for (int i = 0; i < index - 1; i++) {
+                            strcat(path_actual, path[i]);
                             strcat(path_actual, "/");
-                            strcat(path_actual, path[i]);                           
                         }
-                        printf("%s> ", path_actual);
                     }
-                }               
-            }   
-            break;
+                    else {
+                        printf("PATH NOT FOUND\n");
+                        break;
+                    }
+                }
+
+            }
+            else {
+                if (strcmp(param1, "..") == 0) {
+                    char* s;
+                    s = &path_actual[strlen(path_actual) - 1];
+                    while (strcmp(s, "/") != 0) {                       
+                        path_actual[strlen(path_actual) - 1] = '\0';
+                        s = &path_actual[strlen(path_actual) - 1];
+                    }
+                    path_actual[strlen(path_actual) - 1] = '\0'; 
+                }
+                else {
+                    index = 0;                                   
+                    getActDirectory(file, path_actual, param2);
+                    path[index] = param2;
+                    path[index + 1] = param1;
+                    dir = get_directory_item(file, path[1]);  
+                    if (isValidPath(file, path, 1) && dir.isFile == 0) {  
+                        char tmp[2] = "/";                        
+                        strcat(path_actual, tmp);
+                        strcat(path_actual, param1);                      
+                    }
+                    else {
+                        printf("PATH NOT FOUND\n");
+                        break;
+                    }
+                }
+            }
+            printf("%s> ", path_actual);
+            break;            
 
         case 9:
             printf("%s> ", path_actual);
@@ -906,7 +935,7 @@ int main(int argc, char** argv) {
         if (strcmp(vstup, "cat") == 0) {
             return 7;
         }
-        if (strcmp(vstup, "cd") == 0) {
+        if (strcmp(vstup, "cd") == 0) {            
             return 8;
         }
         if (strcmp(vstup, "pwd") == 0) {
