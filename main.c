@@ -1,6 +1,6 @@
 /* ========================================================================== */
 /*                                                                            */
-/*   File: main.cpp                                                           */
+/*   File: main.c                                                         */
 /*   Author: saveld                                                           */
 /*                                                                            */
 /*   Created: 23.10.2022                                                      */
@@ -33,9 +33,9 @@ struct description {
 
 struct directory_item {
     char item_name[13];              //8+3 + /0 C/C++ ukoncovaci string znak
-    bool isFile;		     //identifikace zda je soubor (TRUE), nebo adresáø (FALSE)
-    int32_t size;                    //velikost souboru, u adresáøe 0 (bude zabirat jeden blok)
-    int32_t start_cluster;           //poèáteèní cluster položky
+    bool isFile;		     //identifikace zda je soubor (TRUE), nebo adres?? (FALSE)
+    int32_t size;                    //velikost souboru, u adres??e 0 (bude zabirat jeden blok)
+    int32_t start_cluster;           //po??te?n? cluster polo?ky
 };
 
 struct description desc;
@@ -256,14 +256,20 @@ void deleteFromDir(char* name, int32_t* fat_tab, FILE* file) {
             if (strstr(content, name) != NULL) {
 
                 token = strtok(content, ",");
-          
-                while (token != NULL) {
-                    if (strcmp(token, name) != 0) {                        
-                        strcat(new_content, token);
-                        strcat(new_content, ",");
-                    }                  
+                if (token != NULL) {
+                    strcpy(new_content, token);
+                    strcat(new_content, ",");
                     token = strtok(NULL, ",");
+                    while (token != NULL) {
+                        if (strcmp(token, name) != 0) {
+                            strcat(new_content, token);
+                            strcat(new_content, ",");
+                        }
+                        token = strtok(NULL, ",");
+                    }
                 }
+          
+                
                 new_content[strlen(new_content) - 1] = '\0';               
                 fseek(file, offset, SEEK_SET);
                 fwrite(&new_content, sizeof(new_content), 1, file);
@@ -337,15 +343,23 @@ void moveFile(directory_item dir, directory_item src, directory_item dest, int32
 
 int makeDirectory(directory_item dir, char* name, FILE* file, int32_t* fat_tab) {
     printf("delam dir: %s v adresari %s\n", name, dir.item_name);
+    char* token;
     char content[desc.cluster_size];
+    char new_content[desc.cluster_size];
     struct directory_item new_dir;
     int adress = desc.data_start_address + desc.cluster_size + (dir.start_cluster * desc.cluster_size);
     fseek(file, adress, SEEK_SET);
     fread(&content, sizeof(content), 1, file);
-    if (strchr(content, *name) != NULL) {
-        return 0;
+
+    strcpy(new_content, content);
+    token = strtok(new_content, ",");
+    while (token != NULL) {
+        if (strcmp(token, name) == 0) {
+            return 0;
+        }
+        token = strtok(NULL, ",");
     }
-    else {
+    
         strcat(content, ",");
         strcat(content, name);
         fseek(file, adress, SEEK_SET);
@@ -368,7 +382,58 @@ int makeDirectory(directory_item dir, char* name, FILE* file, int32_t* fat_tab) 
             fwrite(&fat_tab[i], sizeof(int32_t), 1, file);
         }
         return 1;
+    
+}
+
+int isEmptyDir(directory_item dir, FILE* file) {
+    char content[desc.cluster_size];
+    char null[desc.cluster_size];
+    int adress = desc.data_start_address + desc.cluster_size + (dir.start_cluster * desc.cluster_size);
+    fseek(file, adress, SEEK_SET);
+    fread(&content, sizeof(content), 1, file);
+    printf("content %s\n", content);
+    if (strlen(content) > 0) {
+        return 0;
     }
+    else {
+        return 1;
+    }
+}
+
+void printInfo(directory_item dir, int32_t* fat_tab) {
+    int ptr = dir.start_cluster;
+    printf("%s %d", dir.item_name, ptr);
+    while (fat_tab[ptr] != FAT_FILE_END) {
+        ptr = fat_tab[ptr];
+        printf(", %d", ptr);
+    }
+    printf("\n");
+}
+
+void uploadFile(directory_item dir, char * name, int32_t* fat_tab, FILE* file, FILE* input) {
+    long filelen;
+    int index;
+    fseek(input, 0, SEEK_END);
+    filelen = ftell(input);
+    rewind(input);
+    char bytes[filelen];
+    char content[desc.cluster_size];
+    struct directory_item new_input;
+    new_input.size = filelen;
+    strcpy(new_input.item_name, name);
+    new_input.isFile = 1;
+
+    int ptr = getEmptyCl(fat_tab);
+    new_input.start_cluster = ptr;
+
+    int adress = desc.data_start_address + desc.dir_entry_count * sizeof(directory_item);
+    desc.dir_entry_count++;
+    fseek(file, adress, SEEK_SET);
+    fwrite(&new_input, sizeof(new_input), 1, file);
+
+    fread(&content, sizeof(content), 1, input);
+    printf("%s\n", content);
+
 }
 
 int main(int argc, char** argv) {
@@ -397,7 +462,7 @@ int main(int argc, char** argv) {
     printf("name: %s\n", desc.signature);
 
     /*
-    * vytvoøení root položek
+    * vytvo?en? root polo?ek
     */
     memset(root_dir.item_name, '\0', sizeof(root_dir.item_name));
     root_dir.isFile = 0;
@@ -519,31 +584,31 @@ int main(int argc, char** argv) {
     memset(cluster_dir2, '\0', sizeof(cluster_dir2));
     strcpy(cluster_a, "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789 - tohle je malicky soubor pro test");
     strcpy(cluster_b1, "Byla jednou jedna sladka divenka, kterou musel milovat kazdy, jen ji uvidel, ale nejvice ji milovala jeji babicka, ktera by ji snesla i modre z nebe. Jednou ji darovala cepecek karkulku z cerveneho sametu a ten se vnucce tak libil, ze nic jineho nechtela ");
-    strcpy(cluster_b2, "nosit, a tak ji zacali rikat Cervena Karkulka. Jednou matka Cervene Karkulce rekla: „Podivej, Karkulko, tady mas kousek kolace a lahev vina, zanes to babicce, je nemocna a zeslabla, timhle se posilni. Vydej se na cestu drive nez bude horko, jdi hezky spor");
-    strcpy(cluster_b3, "adane a neodbihej z cesty, kdyz upadnes, lahev rozbijes a babicka nebude mit nic. A jak vejdes do svetnice, nezapomeò babicce poprat dobreho dne a ne abys smejdila po vsech koutech.“ „Ano, maminko, udelam, jak si prejete.“ rekla Cerveni Karkulka, na stvrz");
-    strcpy(cluster_b4, "eni toho slibu podala matce ruku a vydala se na cestu. Babicka bydlela v lese; celou pùlhodinu cesty od vesnice. Kdyz sla Cervena Karkulka lesem, potkala vlka. Tenkrat jeste nevedela, co je to za zaludne zvire a ani trochu se ho nebala. „Dobry den, Cerven");
-    strcpy(cluster_b5, "a Karkulko!“ rekl vlk. „Dekuji za prani, vlku.“ „Kampak tak casne, Cervena Karkulko?“ „K babicce!“ „A copak to neses v zasterce?“ „Kolac a vino; vcera jsme pekli, nemocne a zeslable babicce na posilnenou.“ „Kdepak bydli babicka, Cervena Karkulko?“ „Inu, j");
-    strcpy(cluster_b6, "este tak ctvrthodiny cesty v lese, jeji chaloupka stoji mezi tremi velkymi duby, kolem je liskove oresi, urcite to tam musis znat.“ odvetila Cervena Karkulka. Vlk si pomyslil: „Tohle mlaïoucke, jemòoucke masicko bude jiste chutnat lepe nez ta starena, mus");
-    strcpy(cluster_b7, "im to navleci lstive, abych schlamstnul obe.“ Chvili sel vedle Cervene Karkulky a pak pravil: „Cervena Karkulko, koukej na ty krasne kvetiny, ktere tu rostou vsude kolem, procpak se trochu nerozhlednes? Myslim, ze jsi jeste neslysela ptacky, kteri by zpiv");
-    strcpy(cluster_b8, "ali tak libezne. Ty jsi tu vykracujes, jako kdybys sla do skoly a pritom je tu v lese tak krasne!“ Cervena Karkulka otevrela oci dokoran a kdyz videla, jak slunecni paprsky tancuji skrze stromy sem a tam a vsude roste tolik krasnych kvetin, pomyslila si: ");
-    strcpy(cluster_b9, "„Kdyz prinesu babicce kytici cerstvych kvetin, bude mit jiste radost, casu mam dost, prijdu akorat.“ A sebehla z cesty do lesa a trhala kvetiny. A kdyz jednu utrhla, zjistila, ze o kus dal roste jeste krasnejsi, bezela k ni, a tak se dostavala stale hloub");
-    strcpy(cluster_b10, "eji do lesa. Ale vlk bezel rovnou k babiccine chaloupce a zaklepal na dvere. „Kdo je tam?“ „Cervena Karkulka, co nese kolac a vino, otevri!“ „Jen zmackni kliku,“ zavolala babicka: „jsem prilis slaba a nemohu vstat.“ Vlk vzal za kliku, otevrel dvere a beze");
+    strcpy(cluster_b2, "nosit, a tak ji zacali rikat Cervena Karkulka. Jednou matka Cervene Karkulce rekla: ?Podivej, Karkulko, tady mas kousek kolace a lahev vina, zanes to babicce, je nemocna a zeslabla, timhle se posilni. Vydej se na cestu drive nez bude horko, jdi hezky spor");
+    strcpy(cluster_b3, "adane a neodbihej z cesty, kdyz upadnes, lahev rozbijes a babicka nebude mit nic. A jak vejdes do svetnice, nezapome? babicce poprat dobreho dne a ne abys smejdila po vsech koutech.? ?Ano, maminko, udelam, jak si prejete.? rekla Cerveni Karkulka, na stvrz");
+    strcpy(cluster_b4, "eni toho slibu podala matce ruku a vydala se na cestu. Babicka bydlela v lese; celou p?lhodinu cesty od vesnice. Kdyz sla Cervena Karkulka lesem, potkala vlka. Tenkrat jeste nevedela, co je to za zaludne zvire a ani trochu se ho nebala. ?Dobry den, Cerven");
+    strcpy(cluster_b5, "a Karkulko!? rekl vlk. ?Dekuji za prani, vlku.? ?Kampak tak casne, Cervena Karkulko?? ?K babicce!? ?A copak to neses v zasterce?? ?Kolac a vino; vcera jsme pekli, nemocne a zeslable babicce na posilnenou.? ?Kdepak bydli babicka, Cervena Karkulko?? ?Inu, j");
+    strcpy(cluster_b6, "este tak ctvrthodiny cesty v lese, jeji chaloupka stoji mezi tremi velkymi duby, kolem je liskove oresi, urcite to tam musis znat.? odvetila Cervena Karkulka. Vlk si pomyslil: ?Tohle mla?oucke, jem?oucke masicko bude jiste chutnat lepe nez ta starena, mus");
+    strcpy(cluster_b7, "im to navleci lstive, abych schlamstnul obe.? Chvili sel vedle Cervene Karkulky a pak pravil: ?Cervena Karkulko, koukej na ty krasne kvetiny, ktere tu rostou vsude kolem, procpak se trochu nerozhlednes? Myslim, ze jsi jeste neslysela ptacky, kteri by zpiv");
+    strcpy(cluster_b8, "ali tak libezne. Ty jsi tu vykracujes, jako kdybys sla do skoly a pritom je tu v lese tak krasne!? Cervena Karkulka otevrela oci dokoran a kdyz videla, jak slunecni paprsky tancuji skrze stromy sem a tam a vsude roste tolik krasnych kvetin, pomyslila si: ");
+    strcpy(cluster_b9, "?Kdyz prinesu babicce kytici cerstvych kvetin, bude mit jiste radost, casu mam dost, prijdu akorat.? A sebehla z cesty do lesa a trhala kvetiny. A kdyz jednu utrhla, zjistila, ze o kus dal roste jeste krasnejsi, bezela k ni, a tak se dostavala stale hloub");
+    strcpy(cluster_b10, "eji do lesa. Ale vlk bezel rovnou k babiccine chaloupce a zaklepal na dvere. ?Kdo je tam?? ?Cervena Karkulka, co nese kolac a vino, otevri!? ?Jen zmackni kliku,? zavolala babicka: ?jsem prilis slaba a nemohu vstat.? Vlk vzal za kliku, otevrel dvere a beze");
     strcpy(cluster_b11, "slova sel rovnou k babicce a spolknul ji. Pak si obleknul jeji saty a nasadil jeji cepec, polozil se do postele a zatahnul zaves. Zatim Cervena Karkulka behala mezi kvetinami, a kdyz jich mela naruc tak plnou, ze jich vic nemohla pobrat, tu ji prisla na  ");
-    strcpy(cluster_b12, "mysl babicka, a tak se vydala na cestu za ni. Podivila se, ze jsou dvere otevrene, a kdyz vesla do svetnice, prislo ji vse takove podivne, ze si pomyslila: „Dobrotivy Boze, je mi dneska nejak úzko a jindy jsem u babicky tak rada.“ Zvolala: „Dobre jitro!“ ");
-    strcpy(cluster_b13, "Ale nedostala zadnou odpoveï. Šla tedy k posteli a odtahla zaves; lezela tam babicka a mela cepec narazeny hluboko do obliceje a vypadala nejak podivne. Ach, babicko, proc mas tak velke usi?“ „Abych te lepe slysela.“ „Ach, babicko, proc mas tak velke oci ");
-    strcpy(cluster_b14, "?“ „Abych te lepe videla.“ „Ach, babicko, proc mas tak velke ruce?“ „Abych te lepe objala.“ „Ach, babicko, proc mas tak straslivou tlamu?“ „Abych te lepe sezrala!!“ Sotva vlk ta slova vyrknul, vyskocil z postele a ubohou Cervenou Karkulku spolknul. Kdyz t");
-    strcpy(cluster_b15, "eï uhasil svoji zadostivost, polozil se zpatky do postele a usnul a z toho spanku se jal mocne chrapat. Zrovna sel kolem chaloupky lovec a pomyslil si: „Ta starenka ale chrape, musim se na ni podivat, zda neco nepotrebuje.“ Vesel do svetnice, a kdyz prist");
-    strcpy(cluster_b16, "oupil k posteli, uvidel, ze v ni lezi vlk. „Tak prece jsem te nasel, ty stary hrisniku!“ zvolal lovec: „Uz mam na tebe dlouho policeno!“ Strhnul z ramene pusku, ale pak mu prislo na mysl, ze vlk mohl sezrat babicku a mohl by ji jeste zachranit. Nestrelil ");
-    strcpy(cluster_b17, "tedy, nybrz vzal nùzky a zacal spicimu vlkovi parat bricho. Sotva ucinil par rezù, uvidel se cervenat karkulku a po par dalsich rezech vyskocila divenka ven a volala: „Ach, ja jsem se tolik bala, ve vlkovi je cernocerna tma.“ A potom vylez la ven i ziva b");
+    strcpy(cluster_b12, "mysl babicka, a tak se vydala na cestu za ni. Podivila se, ze jsou dvere otevrene, a kdyz vesla do svetnice, prislo ji vse takove podivne, ze si pomyslila: ?Dobrotivy Boze, je mi dneska nejak ?zko a jindy jsem u babicky tak rada.? Zvolala: ?Dobre jitro!? ");
+    strcpy(cluster_b13, "Ale nedostala zadnou odpove?. ?la tedy k posteli a odtahla zaves; lezela tam babicka a mela cepec narazeny hluboko do obliceje a vypadala nejak podivne. Ach, babicko, proc mas tak velke usi?? ?Abych te lepe slysela.? ?Ach, babicko, proc mas tak velke oci ");
+    strcpy(cluster_b14, "?? ?Abych te lepe videla.? ?Ach, babicko, proc mas tak velke ruce?? ?Abych te lepe objala.? ?Ach, babicko, proc mas tak straslivou tlamu?? ?Abych te lepe sezrala!!? Sotva vlk ta slova vyrknul, vyskocil z postele a ubohou Cervenou Karkulku spolknul. Kdyz t");
+    strcpy(cluster_b15, "e? uhasil svoji zadostivost, polozil se zpatky do postele a usnul a z toho spanku se jal mocne chrapat. Zrovna sel kolem chaloupky lovec a pomyslil si: ?Ta starenka ale chrape, musim se na ni podivat, zda neco nepotrebuje.? Vesel do svetnice, a kdyz prist");
+    strcpy(cluster_b16, "oupil k posteli, uvidel, ze v ni lezi vlk. ?Tak prece jsem te nasel, ty stary hrisniku!? zvolal lovec: ?Uz mam na tebe dlouho policeno!? Strhnul z ramene pusku, ale pak mu prislo na mysl, ze vlk mohl sezrat babicku a mohl by ji jeste zachranit. Nestrelil ");
+    strcpy(cluster_b17, "tedy, nybrz vzal n?zky a zacal spicimu vlkovi parat bricho. Sotva ucinil par rez?, uvidel se cervenat karkulku a po par dalsich rezech vyskocila divenka ven a volala: ?Ach, ja jsem se tolik bala, ve vlkovi je cernocerna tma.? A potom vylez la ven i ziva b");
     strcpy(cluster_b18, "abicka; sotva dechu popadala. Cervena Karkulka pak nanosila obrovske kameny, kterymi vlkovo bricho naplnili, a kdyz se ten probudil a chtel uteci, kameny ho tak desive tizily, ze klesnul k zemi nadobro mrtvy. Ti tri byli spokojeni. Lovec stahnul vlkovi ko");
-    strcpy(cluster_b19, "zesinu a odnesl si ji domù, babicka snedla kolac a vypila vino, ktere Cervena Karkulka prinesla, a opet se zotavila. A Cervena Karkulka? Ta si svatosvate prisahala: „Uz nikdy v zivote nesejdu z cesty do lesa, kdyz mi to maminka zakaze!“ O Cervene  Karkulc");
+    strcpy(cluster_b19, "zesinu a odnesl si ji dom?, babicka snedla kolac a vypila vino, ktere Cervena Karkulka prinesla, a opet se zotavila. A Cervena Karkulka? Ta si svatosvate prisahala: ?Uz nikdy v zivote nesejdu z cesty do lesa, kdyz mi to maminka zakaze!? O Cervene  Karkulc");
     strcpy(cluster_b20, "e se jeste vypravi, ze kdyz sla jednou zase k babicce s babovkou, potkala jineho vlka a ten se ji taky vemlouval a snazil se ji svest z cesty. Ale  ona se toho vystrihala a kracela rovnou k babicce, kde hned vypovedela, ze potkala vlka, ktery ji sice popr");
-    strcpy(cluster_b21, "al dobry den, ale z oci mu koukala nekalota. „Kdyby to nebylo na verejne ceste, jiste by mne sezral!“ „Pojï,“  rekla babicka: „zavreme dobre dvere, aby nemohl dovnitr.“ Brzy nato zaklepal vlk a zavolal: „Otevri, babicko, ja jsem Cervena Karkulka a nesu ti");
-    strcpy(cluster_b22, "pecivo!“ Ty dve vsak zùstaly jako peny a neotevrely. Tak se ten sedivak plizil kolem domu a naslouchal, pak vylezl na strechu, aby tam pockal, az Cervena Karkulka pùjde vecer domù, pak ji v temnote popadne a sezere. Ale babicka zle vlkovy úmysly odhalila ");
-    strcpy(cluster_b23, ". Pred domem staly obrovske kamenne necky, tak Cervene  Karkulce rekla: „Vezmi vedro, devenko, vcera jsem varila klobasy, tak tu vodu nanosime venku do necek.“ Kdyz byly necky plne, stoupala vùne klobas nahoru az k vlkovu cenichu. Zavetril a natahoval krk");
-    strcpy(cluster_b24, "tak daleko, ze se na strese vice neudrzel a zacal klouzat dolù, kde spadnul primo do necek a bidne se utopil.");
-    strcpy(cluster_c1, "Prodej aktiv SABMilleru v Ceske republice, Polsku, Maïarsku, Rumunsku a na Slovensku je soucasti podminek pro prevzeti podniku ze strany americkeho pivovaru Anheuser-Busch InBev, ktere bylo dokonceno v rijnu. Krome Plzeòskeho Prazdroje zahrnuji prodavana ");
-    strcpy(cluster_c2, "aktiva polske znacky Tyskie a Lech, slovensky Topvar, maïarsky Dreher a rumunsky Ursus. - Tento soubor je sice kratky, ale neni fragmentovany");
+    strcpy(cluster_b21, "al dobry den, ale z oci mu koukala nekalota. ?Kdyby to nebylo na verejne ceste, jiste by mne sezral!? ?Poj?,?  rekla babicka: ?zavreme dobre dvere, aby nemohl dovnitr.? Brzy nato zaklepal vlk a zavolal: ?Otevri, babicko, ja jsem Cervena Karkulka a nesu ti");
+    strcpy(cluster_b22, "pecivo!? Ty dve vsak z?staly jako peny a neotevrely. Tak se ten sedivak plizil kolem domu a naslouchal, pak vylezl na strechu, aby tam pockal, az Cervena Karkulka p?jde vecer dom?, pak ji v temnote popadne a sezere. Ale babicka zle vlkovy ?mysly odhalila ");
+    strcpy(cluster_b23, ". Pred domem staly obrovske kamenne necky, tak Cervene  Karkulce rekla: ?Vezmi vedro, devenko, vcera jsem varila klobasy, tak tu vodu nanosime venku do necek.? Kdyz byly necky plne, stoupala v?ne klobas nahoru az k vlkovu cenichu. Zavetril a natahoval krk");
+    strcpy(cluster_b24, "tak daleko, ze se na strese vice neudrzel a zacal klouzat dol?, kde spadnul primo do necek a bidne se utopil.");
+    strcpy(cluster_c1, "Prodej aktiv SABMilleru v Ceske republice, Polsku, Ma?arsku, Rumunsku a na Slovensku je soucasti podminek pro prevzeti podniku ze strany americkeho pivovaru Anheuser-Busch InBev, ktere bylo dokonceno v rijnu. Krome Plze?skeho Prazdroje zahrnuji prodavana ");
+    strcpy(cluster_c2, "aktiva polske znacky Tyskie a Lech, slovensky Topvar, ma?arsky Dreher a rumunsky Ursus. - Tento soubor je sice kratky, ale neni fragmentovany");
     strcpy(cluster_dir1, "cisla1.txt,subdir");
     strcpy(cluster_dir2, "hoven.txt");
 
@@ -795,9 +860,9 @@ int main(int argc, char** argv) {
                     break;
                 }               
             }
-            else { 
+            else {                
                 dest = get_directory_item(file, param2);
-                if (dest.item_name == null && dest.isFile == 0) {
+                if (strcmp(dest.item_name, null) == 0) {
                     getActDirectory(file, path_actual, param1);
                     dest = get_directory_item(file, param1);
                 }
@@ -863,8 +928,44 @@ int main(int argc, char** argv) {
                 break;
             }
 
+        case 5:
+            if (strchr(param1, '/') != NULL) {
+                token = strtok(param1, "/");
+                index = 0;
+                while (token != NULL) {
+                    path[index] = token;
+                    index++;
+                    token = strtok(NULL, "/");
+                }
+                if (isValidPath(file, path, index - 1)) {
+                    dir = get_directory_item(file, path[index-1]);
+                }
+                else {
+                    printf("FILE NOT FOUND\n");
+                    break;
+                }
+            }
+            else {
+                dir = get_directory_item(file, param1);
+            }
+            if (strcmp(dir.item_name, null) == 0 || dir.isFile == 1) {
+                printf("FILE NOT FOUND\n");
+                break;
+            }
+            else {
+                if (isEmptyDir(dir, file)) {
+                    get_fat(file, fat_tab);
+                    deleteFromDir(dir.item_name, fat_tab, file);
+                    deleteFile(dir, fat_tab, file);
+                }else{
+                    printf("NOT EMPTY\n");
+                    break;
+                }
+            }
+            break;
+
         case 6:            
-            if (strcmp(param1, null) == 0) {
+            if (strlen(param1) == 0) {
                 getActDirectory(file, path_actual, param1);      
                 printf("dirname %s\n", param1);
                 dir = get_directory_item(file, param1);
@@ -873,7 +974,6 @@ int main(int argc, char** argv) {
                 printf("\n");
             }
             else {
-                printf("eskere");
                 token = strtok(param1, "/");
                 index = 0;
                 while (token != NULL) {
@@ -981,6 +1081,64 @@ int main(int argc, char** argv) {
             printf("%s> ", path_actual);
             break;
 
+        case 10:
+            if (strchr(param1, '/') != NULL) {
+                token = strtok(param1, "/");
+                index = 0;
+                while (token != NULL) {
+                    path[index] = token;
+                    index++;
+                    token = strtok(NULL, "/");
+                }
+                if (isValidPath(file, path, index - 1)) {
+                    dir = get_directory_item(file, path[index - 1]);
+                }
+                else {
+                    printf("FILE NOT FOUND\n");
+                    break;
+                }               
+            }
+            else {
+                dir = get_directory_item(file, param1);
+            }
+            if (strcmp(dir.item_name, null) == 0) {
+                printf("FILE NOT FOUND\n");
+                break;
+            }else{
+                get_fat(file, fat_tab);
+                printInfo(dir, fat_tab);
+                break;
+            }
+        case 11:
+            FILE * input;
+            input = fopen(param1, "r");
+            if (NULL == input) {
+                printf("FILE NOT FOUND\n");
+                break;
+            }
+
+            if (strchr(param2, '/') != NULL) {
+                token = strtok(param2, "/");
+                index = 0;
+                while (token != NULL) {
+                    path[index] = token;
+                    index++;
+                    token = strtok(NULL, "/");
+                }
+                if (isValidPath(file, path, index - 2)) {
+                    strcpy(param2, path[index - 1]);
+                    getActDirectory(file, path_actual, param1);
+                    dir = get_directory_item(file, param1);
+                }
+            }
+            else {
+                getActDirectory(file, path_actual, param1);
+                dir = get_directory_item(file, param1);
+            }
+            get_fat(file, fat_tab);
+            uploadFile(dir, param2, fat_tab, file, input);
+            break;
+                       
         case 15:
             printf("Neplatny prikaz\n");
             break;
@@ -1015,6 +1173,9 @@ int main(int argc, char** argv) {
         if (strcmp(vstup, "mkdir") == 0) {
             return 4;
         }
+        if (strcmp(vstup, "rmdir") == 0) {
+            return 5;
+        }
         if (strcmp(vstup, "ls") == 0) {
             return 6;
         }
@@ -1026,6 +1187,12 @@ int main(int argc, char** argv) {
         }
         if (strcmp(vstup, "pwd") == 0) {
             return 9;
+        }
+        if (strcmp(vstup, "info") == 0) {
+            return 10;
+        }
+        if (strcmp(vstup, "incp") == 0) {
+            return 11;
         }
         if (strcmp(vstup, "exit") == 0) {
             return 16;
