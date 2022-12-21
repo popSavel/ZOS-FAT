@@ -335,6 +335,42 @@ void moveFile(directory_item dir, directory_item src, directory_item dest, int32
     fwrite(&content, sizeof(content), 1, file);
 }
 
+int makeDirectory(directory_item dir, char* name, FILE* file, int32_t* fat_tab) {
+    printf("delam dir: %s v adresari %s\n", name, dir.item_name);
+    char content[desc.cluster_size];
+    struct directory_item new_dir;
+    int adress = desc.data_start_address + desc.cluster_size + (dir.start_cluster * desc.cluster_size);
+    fseek(file, adress, SEEK_SET);
+    fread(&content, sizeof(content), 1, file);
+    if (strchr(content, *name) != NULL) {
+        return 0;
+    }
+    else {
+        strcat(content, ",");
+        strcat(content, name);
+        fseek(file, adress, SEEK_SET);
+        fwrite(&content, sizeof(content), 1, file);
+
+        memset(new_dir.item_name, '\0', sizeof(new_dir.item_name));
+        new_dir.isFile = 0;
+        strcpy(new_dir.item_name, name);
+        new_dir.size = 0;
+        new_dir.start_cluster = getEmptyCl(fat_tab);
+
+        adress = desc.data_start_address + desc.dir_entry_count * sizeof(directory_item);
+        desc.dir_entry_count++;
+        fseek(file, adress, SEEK_SET);
+        fwrite(&new_dir, sizeof(new_dir), 1, file);
+
+        fat_tab[new_dir.start_cluster] = FAT_FILE_END;
+        for (int i = 0; i < desc.cluster_count; i++) {
+            fseek(file, desc.fat1_start_address + (i * sizeof(int32_t)), SEEK_SET);
+            fwrite(&fat_tab[i], sizeof(int32_t), 1, file);
+        }
+        return 1;
+    }
+}
+
 int main(int argc, char** argv) {
 
     if (argc != 2) {
@@ -640,7 +676,6 @@ int main(int argc, char** argv) {
     char enter;
     char null[5];
     char path_actual[200]; 
-    //memset(&path_actual, '\0', sizeof(path_actual));
     strcpy(path_actual, "/root");
 
     while (true) {
@@ -650,7 +685,6 @@ int main(int argc, char** argv) {
 
         fgets(vstup, 50, stdin);
         vstup[strcspn(vstup, "\n")] = 0;
-        printf("vstup: %s\n", vstup);
         token = strtok_r(vstup, " ", &rest);
 
         strcpy(fce, token);
@@ -718,9 +752,7 @@ int main(int argc, char** argv) {
                     char* s = strdup(path[index - 1]);
                     strcpy(param1, path[index - 2]);
                     dir = get_directory_item(file, s);                              
-                    src = get_directory_item(file, param1);
-                    printf("devko: %s\n", s);
-                    printf("devko: %s\n",param1);
+                    src = get_directory_item(file, param1);                  
                 }
                 else {    
                     printf("FILE NOT FOUND\n");
@@ -747,10 +779,16 @@ int main(int argc, char** argv) {
                     index++;
                     token = strtok(NULL, "/");
                 }
-                if (isValidPath(file, path, index - 2) && index > 1) {
-                    strcpy(param2, path[index - 2]);
+                if (isValidPath(file, path, index - 2) && index > 1) {             
+                    strcpy(param1, path[index - 2]);              
+                    strcpy(param2, path[index - 1]);                   
                     dest = get_directory_item(file, param2);
-                    strcpy(param2, path[index - 1]);
+                    if (dest.isFile == 0) {
+                        strcpy(param2, dir.item_name);
+                    }
+                    else {                      
+                        dest = get_directory_item(file, param1);
+                    }             
                 }
                 else {
                     printf("PATH NOT FOUND \n");
@@ -758,8 +796,19 @@ int main(int argc, char** argv) {
                 }               
             }
             else { 
-                getActDirectory(file, path_actual, param1);                                      
-                dest = get_directory_item(file, param1);                         
+                dest = get_directory_item(file, param2);
+                if (dest.item_name == null && dest.isFile == 0) {
+                    getActDirectory(file, path_actual, param1);
+                    dest = get_directory_item(file, param1);
+                }
+                else {
+                    getActDirectory(file, path_actual, param1);
+                    path[0] = param1;
+                    path[1] = param2;
+                    if (isValidPath(file, path, 1)) {
+                        strcpy(param2, dir.item_name);
+                    }
+                }                                       
                 
             }
             get_fat(file, fat_tab);
@@ -781,7 +830,40 @@ int main(int argc, char** argv) {
                 deleteFile(dir, fat_tab, file);
             }
             break;
-        case 6:
+
+        case 4:           
+            if (strchr(param1, '/') != NULL) {
+                token = strtok(param1, "/");
+                index = 0;
+                while (token != NULL) {
+                    path[index] = token;
+                    index++;
+                    token = strtok(NULL, "/");
+                }
+                if (isValidPath(file, path, index - 2)) {
+                    dir = get_directory_item(file, path[index - 2]);
+                    strcpy(param1, path[index - 1]);
+                }
+                else {
+                    printf("PATH NOT FOUND \n");
+                    break;
+                }
+            }
+            else {
+                getActDirectory(file, path_actual, param2);
+                dir = get_directory_item(file, param2);
+            }
+            get_fat(file, fat_tab);
+            if (makeDirectory(dir, param1, file, fat_tab)) {
+                printf("OK\n");
+                break;
+            }
+            else {
+                printf("EXIST\n");
+                break;
+            }
+
+        case 6:            
             if (strcmp(param1, null) == 0) {
                 getActDirectory(file, path_actual, param1);      
                 printf("dirname %s\n", param1);
@@ -791,6 +873,7 @@ int main(int argc, char** argv) {
                 printf("\n");
             }
             else {
+                printf("eskere");
                 token = strtok(param1, "/");
                 index = 0;
                 while (token != NULL) {
@@ -928,6 +1011,9 @@ int main(int argc, char** argv) {
         }
         if (strcmp(vstup, "rm") == 0) {
             return 3;
+        }
+        if (strcmp(vstup, "mkdir") == 0) {
+            return 4;
         }
         if (strcmp(vstup, "ls") == 0) {
             return 6;
