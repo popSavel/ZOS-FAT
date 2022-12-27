@@ -23,7 +23,7 @@ const int32_t MAX_DIR_IMMERSION = 5;
 const int32_t FAT_MAX_SIZE = 65536;
 
 struct description {
-    char signature[9];              //login autora FS
+    char signature[20];              //login autora FS
     int32_t disk_size;              //celkova velikost VFS
     int32_t cluster_size;           //velikost clusteru
     int32_t cluster_count;          //pocet clusteru
@@ -139,26 +139,28 @@ void getFileName(FILE* file, char* param1) {
     char* path[MAX_DIR_IMMERSION];
     char* token = strtok(param1, "/");
     int index = 0;
+    char null[] = { '\0' };
     while (token != NULL) {
         path[index] = token;
         index++;
         token = strtok(NULL, "/");
-    }  
+    }
     if (isValidPath(file, path, index - 1)) {
-        strcpy(param1, path[index - 1]);
+        strcpy(param1, null);
+        strcat(param1, path[index - 1]);
     }
     else {
         memset(param1, '\0', sizeof(param1));
     }
 }
 
-void copyFile(directory_item dir, int32_t* fat_tab, FILE* file, char** cesta, int size) {
-    printf("kopiruju soubor: %s, do: %s\n", dir.item_name, cesta[size - 2]);
+void copyFile(directory_item dir, int32_t* fat_tab, directory_item dest, FILE* file, char* name) {
     char content[desc.cluster_size];
+    char new_content[desc.cluster_size];
     struct directory_item new_file;
     memset(new_file.item_name, '\0', sizeof(new_file.item_name));
     new_file.isFile = 1;
-    strcpy(new_file.item_name, cesta[size - 1]);
+    strcpy(new_file.item_name, name);
     new_file.size = dir.size;
     new_file.start_cluster = getEmptyCl(fat_tab);
 
@@ -188,12 +190,13 @@ void copyFile(directory_item dir, int32_t* fat_tab, FILE* file, char** cesta, in
         new_ptr = getEmptyCl(fat_tab);
     } while (ptr != FAT_FILE_END);
 
-    struct directory_item subdir = get_directory_item(file, cesta[size - 2]);
-    adress = start_adress + subdir.start_cluster * desc.cluster_size;
+    adress = start_adress + dest.start_cluster * desc.cluster_size;
     fseek(file, adress, SEEK_SET);
-    fread(&content, sizeof(content), 1, file);
-    strcpy(content, ",");
-    strcpy(content, new_file.item_name);
+    fread(&content, sizeof(content), 1, file);    
+    strcpy(new_content, new_file.item_name);
+    strcat(new_content, ",");
+    strcat(content, new_content);
+    fseek(file, adress, SEEK_SET);
     fwrite(&content, sizeof(content), 1, file);
 
     adress = desc.data_start_address + desc.dir_entry_count * sizeof(directory_item);
@@ -209,7 +212,6 @@ void copyFile(directory_item dir, int32_t* fat_tab, FILE* file, char** cesta, in
 }
 
 void deleteFile(directory_item dir, int32_t* fat_tab, FILE* file) {
-    printf("odstranuji: %s\n", dir.item_name);
     int offset;
     struct directory_item item;
     for (int i = 0; i < desc.dir_entry_count; i++) {
@@ -304,7 +306,6 @@ void getActDirectory(char *path_actual, char *dir_name) {
 }
 
 void moveFile(directory_item dir, directory_item src, directory_item dest, int32_t* fat_tab, FILE* file, char* new_name) {
-    printf("presunuji soubor - %s ze - %s do - %s se jmenem - %s\n", dir.item_name, src.item_name, dest.item_name, new_name);
     directory_item item;
     char content[desc.cluster_size];
     char old_name[13];
@@ -355,7 +356,6 @@ void moveFile(directory_item dir, directory_item src, directory_item dest, int32
 }
 
 int makeDirectory(directory_item dir, char* name, FILE* file, int32_t* fat_tab) {
-    printf("delam dir: %s v adresari %s\n", name, dir.item_name);
     char* token;
     char content[desc.cluster_size];
     char new_content[desc.cluster_size];
@@ -404,7 +404,6 @@ int isEmptyDir(directory_item dir, FILE* file) {
     int adress = desc.data_start_address + desc.cluster_size + (dir.start_cluster * desc.cluster_size);
     fseek(file, adress, SEEK_SET);
     fread(&content, sizeof(content), 1, file);
-    printf("content %s\n", content);
     if (strlen(content) > 0) {
         return 0;
     }
@@ -424,7 +423,6 @@ void printInfo(directory_item dir, int32_t* fat_tab) {
 }
 
 void uploadFile(directory_item dir, char * name, int32_t* fat_tab, FILE* file, FILE* input) {
-    printf("ukladam do: %s, se jmenem: %s\n", dir.item_name, name);
     long filelen;
     int index;
     fseek(input, 0, SEEK_END);
@@ -479,16 +477,26 @@ void uploadFile(directory_item dir, char * name, int32_t* fat_tab, FILE* file, F
 
 void printOut(directory_item dir, FILE* output, FILE* file, int32_t* fat_tab) {
     int ptr = dir.start_cluster;
+    int new_ptr = fat_tab[ptr];
     int start_adress = desc.data_start_address + desc.cluster_size;
     int adress;
     char out[desc.cluster_size];
-    do {
+    int i = 0;
+    while (new_ptr != FAT_FILE_END) {
         adress = start_adress + ptr * desc.cluster_size;
         fseek(file, adress, SEEK_SET);
         fread(&out, sizeof(out), 1, file);
         fwrite(&out, sizeof(out), 1, output);
-        ptr = fat_tab[ptr];
-    } while (ptr != FAT_FILE_END);
+        i++;
+        ptr = new_ptr;
+        new_ptr = fat_tab[ptr];
+    }
+    int bytes_left = dir.size - i * sizeof(out);
+    char rest[bytes_left];
+    adress = start_adress + ptr * desc.cluster_size;
+    fseek(file, adress, SEEK_SET);
+    fread(&rest, sizeof(rest), 1, file);
+    fwrite(&rest, sizeof(rest), 1, output);
 }
 
 bool notDerranged(directory_item dir, int32_t* fat_tab) {
@@ -528,7 +536,6 @@ void  defrag(directory_item dir, int32_t* fat_tab, FILE* file) {
                     }
                 }
                 if (found) {
-                    printf("nasel jsem na %d az %d\n", i, i + cluster_count - 1);
                     start_index = i;
                     i = desc.cluster_count;
                 }
@@ -584,11 +591,17 @@ void executeCommand(char* fce, char* param1, char* param2, FILE* file) {
     directory_item dir;
     int32_t fat_tab[desc.cluster_count];
     char enter;
-    char null[5];
+    char null[5] = {'\0'};
 
     if (strcmp(fce, "cp") == 0) {
+        directory_item dest;
         if (strchr(param1, '/') != NULL) {
             getFileName(file, param1);
+        }
+        dir = get_directory_item(file, param1);
+        if (strcmp(dir.item_name, null) == 0) {
+            printf("FILE NOT FOUND\n");
+            return;;
         }
 
         token = strtok(param2, "/");
@@ -599,15 +612,25 @@ void executeCommand(char* fce, char* param1, char* param2, FILE* file) {
             token = strtok(NULL, "/");
         }
 
-        if (isValidPath(file, path, index - 2) && index > 1) {
-
-            dir = get_directory_item(file, param1);
-            if (strcmp(dir.item_name, null) == 0) {
-                printf("FILE NOT FOUND\n");
-                return;;
+        if (isValidPath(file, path, index - 2)) {
+            if (index > 1) {
+                
+                strcpy(param1, path[index - 2]);
+                dest = get_directory_item(file, param1);
+                strcpy(param2, path[index - 1]);
+            }
+            else {
+                getActDirectory(path_actual, param1);
+                dest = get_directory_item(file, param1);
+                strcpy(param2, path[index - 1]);
+            }
+            if (strcmp(dest.item_name, null) == 0) {
+                printf("PATH NOT FOUND \n");
+                return;
             }
             get_fat(file, fat_tab);
-            copyFile(dir, fat_tab, file, path, index);
+            copyFile(dir, fat_tab, dest, file, param2);
+            printf("OK\n");
         }
         else {
             printf("PATH NOT FOUND \n");
@@ -617,7 +640,7 @@ void executeCommand(char* fce, char* param1, char* param2, FILE* file) {
     else if (strcmp(fce, "mv") == 0) {
         directory_item src;
         directory_item dest;
-        if (strchr(param1, '/') != NULL) {
+        if (strchr(param1, '/') != NULL) {            
             token = strtok(param1, "/");
             index = 0;
             while (token != NULL) {
@@ -626,11 +649,18 @@ void executeCommand(char* fce, char* param1, char* param2, FILE* file) {
                 token = strtok(NULL, "/");
             }
             if (isValidPath(file, path, index - 1)) {
-
-                char* s = strdup(path[index - 1]);
-                strcpy(param1, path[index - 2]);
-                dir = get_directory_item(file, s);
-                src = get_directory_item(file, param1);
+                if (index > 1) {
+                    char* s = strdup(path[index - 1]);
+                    strcpy(param1, path[index - 2]);
+                    dir = get_directory_item(file, s);
+                    src = get_directory_item(file, param1);
+                }
+                else {
+                    char* s = strdup(path[index - 1]);
+                    dir = get_directory_item(file, s);
+                    getActDirectory(path_actual, param1);
+                    src = get_directory_item(file, param1);
+                }               
             }
             else {
                 printf("FILE NOT FOUND\n");
@@ -644,7 +674,6 @@ void executeCommand(char* fce, char* param1, char* param2, FILE* file) {
         }
 
         if (strcmp(dir.item_name, null) == 0 || strcmp(src.item_name, null) == 0) {
-            printf("2");
             printf("FILE NOT FOUND\n");
             return;
         }
@@ -657,16 +686,34 @@ void executeCommand(char* fce, char* param1, char* param2, FILE* file) {
                 index++;
                 token = strtok(NULL, "/");
             }
-            if (isValidPath(file, path, index - 2) && index > 1) {
-                strcpy(param1, path[index - 2]);
-                strcpy(param2, path[index - 1]);
-                dest = get_directory_item(file, param2);
-                if (dest.isFile == 0) {
-                    strcpy(param2, dir.item_name);
+            if (isValidPath(file, path, index - 2)) {
+                if (index > 1) {
+                    strcpy(param1, path[index - 2]);
+                    strcpy(param2, path[index - 1]);
+                    dest = get_directory_item(file, param2);
+                    if (dest.isFile == 0) {
+                        strcpy(param2, dir.item_name);
+                    }
+                    else {
+                        dest = get_directory_item(file, param1);
+                    }
                 }
                 else {
-                    dest = get_directory_item(file, param1);
+                    strcpy(param2, path[index - 1]);
+                    dest = get_directory_item(file, param2);
+                    if (dest.isFile == 0) {
+                        strcpy(param2, dir.item_name);
+                    }
+                    else {
+                        getActDirectory(path_actual, param1);
+                        dest = get_directory_item(file, param1);
+                    }
                 }
+                if (strcmp(dest.item_name, null) == 0) {
+                    printf("PATH NOT FOUND \n");
+                    return;
+                }
+               
             }
             else {
                 printf("PATH NOT FOUND \n");
@@ -691,6 +738,7 @@ void executeCommand(char* fce, char* param1, char* param2, FILE* file) {
         }
         get_fat(file, fat_tab);
         moveFile(dir, src, dest, fat_tab, file, param2);
+        printf("OK\n");
     }
 
     else if (strcmp(fce, "rm") == 0) {
@@ -720,8 +768,17 @@ void executeCommand(char* fce, char* param1, char* param2, FILE* file) {
                 token = strtok(NULL, "/");
             }
             if (isValidPath(file, path, index - 2)) {
-                dir = get_directory_item(file, path[index - 2]);
-                strcpy(param1, path[index - 1]);
+                if (index > 1) {
+                    dir = get_directory_item(file, path[index - 2]);
+                }
+                else {
+                    getActDirectory(path_actual, param2);
+                    dir = get_directory_item(file, param2);
+                }
+                char empty[20] = { '\0' };
+                strcpy(param1, empty);
+                strcat(param1, path[index - 1]);
+                
             }
             else {
                 printf("PATH NOT FOUND \n");
@@ -731,7 +788,6 @@ void executeCommand(char* fce, char* param1, char* param2, FILE* file) {
         else {
             getActDirectory(path_actual, param2);
             dir = get_directory_item(file, param2);
-            printf("dirname: %s\n", dir.item_name);
         }
         get_fat(file, fat_tab);
         if (makeDirectory(dir, param1, file, fat_tab)) {
@@ -770,6 +826,7 @@ void executeCommand(char* fce, char* param1, char* param2, FILE* file) {
                 get_fat(file, fat_tab);
                 deleteFromDir(dir.item_name, fat_tab, file);
                 deleteFile(dir, fat_tab, file);
+                printf("OK\n");
             }
             else {
                 printf("NOT EMPTY\n");
@@ -813,7 +870,9 @@ void executeCommand(char* fce, char* param1, char* param2, FILE* file) {
         if (strchr(param1, '/') != NULL) {
             getFileName(file, param1);
         }
+        printf("param1: %s\n", param1);
         dir = get_directory_item(file, param1);
+        printf("dirname: %s\n", dir.item_name);
         if (strcmp(dir.item_name, null) == 0 || dir.isFile == 0) {
             printf("FILE NOT FOUND\n");
         }
@@ -930,7 +989,6 @@ void executeCommand(char* fce, char* param1, char* param2, FILE* file) {
             printf("FILE NOT FOUND\n");
             return;
         }
-
         if (strchr(param2, '/') != NULL) {
             token = strtok(param2, "/");
             index = 0;
@@ -940,9 +998,17 @@ void executeCommand(char* fce, char* param1, char* param2, FILE* file) {
                 token = strtok(NULL, "/");
             }
             if (isValidPath(file, path, index - 2)) {
-                strcpy(param1, path[index - 2]);
-                strcpy(param2, path[index - 1]);  
-                dir = get_directory_item(file, param1);             
+                if (index > 1) {
+                    strcpy(param1, path[index - 2]);                    
+                    dir = get_directory_item(file, param1);                    
+                }
+                else {
+                    getActDirectory(path_actual, param1);
+                    dir = get_directory_item(file, param1);
+                } 
+                char empty[20] = { '\0' };
+                strcpy(param2, empty);
+                strcat(param2, path[index - 1]);             
             }
         }
         else {
@@ -1098,18 +1164,21 @@ int main(int argc, char** argv) {
     }
 
     FILE* file;
-
     char vstup[50];
     char fce[10];
     char param1[20];
     char param2[50];
-    
     char* token;
     char* rest = NULL;
     int prikaz;
+
+    /* aktualni cesta - pri spusteni v adresari root * /
     strcpy(path_actual, "/root");
-    file = fopen(name, "w+");
+    /* po spusteni neni formatovany vstupni soubor */
     bool formated = false;
+
+    file = fopen(name, "w+");
+    char null[] = { '\0' };
 
     while (true) {
         memset(&vstup, '\0', sizeof(vstup));
@@ -1119,80 +1188,92 @@ int main(int argc, char** argv) {
         fgets(vstup, 50, stdin);
 
         vstup[strcspn(vstup, "\n")] = 0;
-        token = strtok_r(vstup, " ", &rest);
+        if (strcmp(vstup, null) != 0) {
 
-        strcpy(fce, token);
-
-        token = strtok_r(NULL, " ", &rest);
-
-        if (token != NULL) {
-            strcpy(param1, token);
+            /* ziskani parametru ze vstupu */
+            token = strtok_r(vstup, " ", &rest);
+            strcpy(fce, token);
             token = strtok_r(NULL, " ", &rest);
             if (token != NULL) {
-                strcpy(param2, token);
+                strcpy(param1, token);
                 token = strtok_r(NULL, " ", &rest);
                 if (token != NULL) {
-                    printf("prilis mnoho parametru\n");
-                    return -1;
+                    strcpy(param2, token);
+                    token = strtok_r(NULL, " ", &rest);
+                    if (token != NULL) {
+                        printf("prilis mnoho parametru\n");
+                        return -1;
+                    }
                 }
             }
-        }
-        if (strcmp(fce, "format") == 0) {
-            format(file, name, param1);
-            formated = true;       
-        }
-        else {
-            if (formated) {
-                if (strcmp(fce, "load") == 0) {
-                    int bufferLength = 50;
-                    char buffer[bufferLength];
-                    FILE* commands = fopen(param1, "r");
-                    if (NULL == commands) {
-                        printf("FILE NOT FOUND\n");
-                    }
-                    else {
-                        while (fgets(buffer, bufferLength, commands)) {
-                            memset(fce, '\0', sizeof(fce));
-                            memset(param1, '\0', sizeof(param1));
-                            memset(param2, '\0', sizeof(param2));
-                            buffer[strcspn(buffer, "\n")] = 0;   
-                            buffer[strlen(buffer) - 1] = '\0';
-                            printf("%s\n", buffer);
-       
-                            if (strstr(buffer, " ") != NULL) {
-                                token = strtok_r(buffer, " ", &rest);
+
+            if (strcmp(fce, "format") == 0) {
+                format(file, name, param1);
+                formated = true;
+            }
+            else {
+                if (formated) {
+                    if (strcmp(fce, "load") == 0) {
+                        int bufferLength = 50;
+                        char buffer[bufferLength];
+                        bool txt = false;
+
+                        /* u souboru s priponou .txt je treba odstranovat esc znaky */
+                        if (strstr(param1, ".txt") != NULL) {
+                            txt = true;
+                        }
+                        FILE* commands = fopen(param1, "r");
+                        if (NULL == commands) {
+                            printf("FILE NOT FOUND\n");
+                        }
+                        else {
+                            while (fgets(buffer, bufferLength, commands)) {
+                                memset(fce, '\0', sizeof(fce));
+                                memset(param1, '\0', sizeof(param1));
+                                memset(param2, '\0', sizeof(param2));
+                                char last_char = buffer[strlen(buffer) - 1];
+                                char nl = '\n';
+                                buffer[strcspn(buffer, "\n")] = 0;
+
+                                /* odstrani se posledni znak pokud je \n a vstupni soubor je s priponou txt*/
+                                if (last_char == nl && txt) {
+                                    buffer[strlen(buffer) - 1] = '\0';
+                                }
+
+                                printf("%s\n", buffer);
+
+                                /* ziskani parametru */
+                                if (strstr(buffer, " ") != NULL) {
+                                    token = strtok_r(buffer, " ", &rest);
 
                                     strcpy(fce, token);
 
                                     token = strtok_r(NULL, " ", &rest);
                                     if (token != NULL) {
                                         strcpy(param1, token);
-                                            token = strtok_r(NULL, " ", &rest);
-                                            if (token != NULL) {
-                                                strcpy(param2, token);
-                                            }
+                                        token = strtok_r(NULL, " ", &rest);
+                                        if (token != NULL) {
+                                            strcpy(param2, token);
+                                        }
                                     }
+                                }
+                                else {
+                                    strcpy(fce, buffer);
+                                }                            
+                                executeCommand(fce, param1, param2, file);
+                                memset(buffer, '\0', sizeof(buffer));
                             }
-                            else {
-                                strcpy(fce, buffer);
-                            }
-                            
-                            
-                            printf("fce: %s\n", fce);
-                            printf("param1: %s\n", param1);
-                            printf("param2: %s\n", param2);
-                            executeCommand(fce, param1, param2, file);
-                            memset(buffer, '\0', sizeof(buffer));
+                            fclose(commands);
+                            printf("OK\n");
                         }
-                        fclose(commands);
+                    }
+                    else {
+                        executeCommand(fce, param1, param2, file);
                     }
                 }
                 else {
-                    executeCommand(fce, param1, param2, file);
+                    printf("Input file is not formated, please format first\n");
                 }
-            }
-            else {
-                printf("Input file is not formated, please format first\n");
             }
         }
     }
