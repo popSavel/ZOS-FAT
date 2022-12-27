@@ -19,34 +19,36 @@ using namespace std;
 const int32_t FAT_UNUSED = INT32_MAX - 1;
 const int32_t FAT_FILE_END = INT32_MAX - 2;
 const int32_t FAT_BAD_CLUSTER = INT32_MAX - 3;
+
+/* maximalni zanoreni adresaru */
 const int32_t MAX_DIR_IMMERSION = 5;
+
+/* maximani mozna velikost pole v bytech */
 const int32_t FAT_MAX_SIZE = 65536;
 
 struct description {
-    char signature[20];              //login autora FS
-    int32_t disk_size;              //celkova velikost VFS
+    char signature[20];              //nazev vstupniho souboru
     int32_t cluster_size;           //velikost clusteru
     int32_t cluster_count;          //pocet clusteru
-    int32_t fat_count;        	    //pocet polozek kazde FAT tabulce
     int32_t fat1_start_address;	    //adresa pocatku FAT1 tabulky
     int32_t data_start_address;     //adresa pocatku datovych bloku (hl. adresar)
-    int32_t dir_entry_count;
-    bool formated;
+    int32_t dir_entry_count;        //pocet polozek v fat (soubory i adresare)                 
 };
 
 struct directory_item {
     char item_name[13];              //8+3 + /0 C/C++ ukoncovaci string znak
-    bool isFile;		     //identifikace zda je soubor (TRUE), nebo adres?? (FALSE)
-    int32_t size;                    //velikost souboru, u adres??e 0 (bude zabirat jeden blok)
-    int32_t start_cluster;           //po??te?n? cluster položky
+    bool isFile;		             //identifikace zda je soubor (TRUE), nebo adresar (FALSE)
+    int32_t size;                    //velikost souboru, u adresare 0 (bude zabirat jeden blok)
+    int32_t start_cluster;           //pocatecni cluster položky
 };
 
 struct description desc;
 
 char path_actual[200];
 
-int getPrikaz(char* vstup);
-
+/*
+* vrati index prvniho nevyuziteho pole ve fat tabulce
+*/
 int getEmptyCl(int32_t* fat_tab) {
     for (int i = 0; i < desc.cluster_count; i++) {
         if (fat_tab[i] == FAT_UNUSED) {
@@ -56,12 +58,15 @@ int getEmptyCl(int32_t* fat_tab) {
     return -1;
 }
 
+/*
+* prochazi fat tabulku od pocatecniho clusteru polozky dir dokud nenarazi na FAT_FILE_END
+*  vypisuje ze souboroveho systemu obsah jednotlivych bloku
+*/
 void printFile(directory_item dir, int32_t *fat_tab, FILE* file) {
     int ptr = dir.start_cluster;
     int start_adress = desc.data_start_address + desc.cluster_size;
     int adress;
     char out[desc.cluster_size];   
-    char* output;
     do {
         memset(out, '\0', sizeof(out));
         adress = start_adress + ptr * desc.cluster_size;
@@ -73,13 +78,19 @@ void printFile(directory_item dir, int32_t *fat_tab, FILE* file) {
     printf("\n");
 }
 
-
+/*
+* nacte se souboru file fat tabulku na adresu ukazatele fat_tab 
+*/
 void get_fat(FILE* file, int32_t *fat_tab) {
     int offset = desc.fat1_start_address;
     fseek(file, offset, SEEK_SET);
     fread(fat_tab, sizeof(int32_t) * desc.cluster_count, 1, file);
 }
 
+/*
+* prochazi polozky -> vraci polozku s nazvem name
+* kdyz na ni nenarazi vrati polozku s prazdnym nazvem
+*/
 directory_item get_directory_item(FILE* file, char* name) {
     struct directory_item dir;
     for (int i = 0; i < desc.dir_entry_count; i++) {
@@ -94,6 +105,11 @@ directory_item get_directory_item(FILE* file, char* name) {
     return dir;
 }
 
+/*
+* char* path[] - pole retezcu reprezentujici absolutni cestu
+* length - index do ktereho se cesta validuje
+* od zacatku cesty nacita obsah adresaru a kontroluje zda obsahuji nasledujici adresar (posledni muze byt soubor)
+*/
 int isValidPath(FILE* file, char* path[], int length) {
     struct directory_item dir;
     int adress = desc.data_start_address + desc.cluster_size;
@@ -116,18 +132,21 @@ int isValidPath(FILE* file, char* path[], int length) {
             index++;
             token = strtok(NULL, ",");
         }
+        /* adresar obsahuje jen jednu polozku */
         if (index == 0) {
             if (strcmp(content, path[i + 1]) == 0) {
                 ok = 1;
             }
         }    
         
+        /* prochazeni polozek v adresari */
         for (int j = 0; j < index; j++) {
              if (strcmp(subdirs[j], path[i+1]) == 0) {
                     ok = 1;
              }
         }      
         
+        /* v adresari se nenasel nasledujici adresar -> cesta neni validni */
         if (ok == 0) {
             return 0;
         }
@@ -135,6 +154,11 @@ int isValidPath(FILE* file, char* path[], int length) {
     return 1;
 }
 
+/*
+* char* param1 - absolutni cesta k souboru nebo adresari
+* do param1 ulozi posledni polozku z cesty, pokud je cesta validni
+* jinak do param1 ulozi prazdne znaky
+*/
 void getFileName(FILE* file, char* param1) {
     char* path[MAX_DIR_IMMERSION];
     char* token = strtok(param1, "/");
@@ -154,6 +178,9 @@ void getFileName(FILE* file, char* param1) {
     }
 }
 
+/*
+* zkopiruje polozku dir do adresare dest pod nazvem name
+*/
 void copyFile(directory_item dir, int32_t* fat_tab, directory_item dest, FILE* file, char* name) {
     char content[desc.cluster_size];
     char new_content[desc.cluster_size];
@@ -170,8 +197,8 @@ void copyFile(directory_item dir, int32_t* fat_tab, directory_item dest, FILE* f
     int start_adress = desc.data_start_address + desc.cluster_size;
     int adress;
     char out[desc.cluster_size];
-    int tmp;
 
+    /* zkopiruje datove bloky na jinou adresu a prida zaznamy do fat-tabulky */
     do {
         adress = start_adress + ptr * desc.cluster_size;
         fseek(file, adress, SEEK_SET);
@@ -190,6 +217,7 @@ void copyFile(directory_item dir, int32_t* fat_tab, directory_item dest, FILE* f
         new_ptr = getEmptyCl(fat_tab);
     } while (ptr != FAT_FILE_END);
 
+    /* prida nazev polozky do adresare dest  */
     adress = start_adress + dest.start_cluster * desc.cluster_size;
     fseek(file, adress, SEEK_SET);
     fread(&content, sizeof(content), 1, file);    
@@ -199,11 +227,13 @@ void copyFile(directory_item dir, int32_t* fat_tab, directory_item dest, FILE* f
     fseek(file, adress, SEEK_SET);
     fwrite(&content, sizeof(content), 1, file);
 
+    /* prida polozku do seznamu polozek ve FS */
     adress = desc.data_start_address + desc.dir_entry_count * sizeof(directory_item);
     desc.dir_entry_count++;
     fseek(file, adress, SEEK_SET);
     fwrite(&new_file, sizeof(new_file), 1, file);  
 
+    /* zapise do FS aktualizovanou fat-tabulku */
     for (int i = 0; i < desc.cluster_count; i++) {
         fseek(file, desc.fat1_start_address + (i * sizeof(int32_t)), SEEK_SET);
         fwrite(&fat_tab[i], sizeof(int32_t), 1, file);     
@@ -211,9 +241,14 @@ void copyFile(directory_item dir, int32_t* fat_tab, directory_item dest, FILE* f
 
 }
 
+/*
+* smaze polozku dir z FS
+*/
 void deleteFile(directory_item dir, int32_t* fat_tab, FILE* file) {
     int offset;
     struct directory_item item;
+
+    /* vyprazdneni directory item */
     for (int i = 0; i < desc.dir_entry_count; i++) {
         offset = desc.data_start_address + sizeof(directory_item) * i;
         fseek(file, offset, SEEK_SET);
@@ -229,6 +264,7 @@ void deleteFile(directory_item dir, int32_t* fat_tab, FILE* file) {
         }
     }
 
+    /* odstraneni z fat */
     int ptr = dir.start_cluster;
     int tmp;
     int start_adress = desc.data_start_address + desc.cluster_size;
@@ -250,6 +286,9 @@ void deleteFile(directory_item dir, int32_t* fat_tab, FILE* file) {
     }
 }
 
+/* 
+* smaze retezec name ze vsech adresaru ve kterych se nachazi 
+*/
 void deleteFromDir(char* name, int32_t* fat_tab, FILE* file) {
     struct directory_item dir;
     char content[desc.cluster_size];
@@ -262,9 +301,9 @@ void deleteFromDir(char* name, int32_t* fat_tab, FILE* file) {
         if (!dir.isFile) {
             offset = desc.data_start_address + desc.cluster_size + dir.start_cluster * desc.cluster_size;
             fseek(file, offset, SEEK_SET);
-            fread(&content, sizeof(content), 1, file);      
+            fread(&content, sizeof(content), 1, file);   
+            /* prekopiruje cely obsah adresare krome name do new_content  */
             if (strstr(content, name) != NULL) {
-
                 token = strtok(content, ",");
                 if (token != NULL) {
                     if (strcmp(token, name) != 0) {
@@ -294,7 +333,9 @@ void deleteFromDir(char* name, int32_t* fat_tab, FILE* file) {
     }
 }
 
-
+/* 
+*ulozi do dir_name posledni cast retezce path_actual oddelenou znakem '/' 
+*/
 void getActDirectory(char *path_actual, char *dir_name) {
     char s[strlen(path_actual)];
     strcpy(s, path_actual);
@@ -305,12 +346,16 @@ void getActDirectory(char *path_actual, char *dir_name) {
     }
 }
 
+/* 
+*presune polozku dir z adresare src do adresare dest pod nazvem new_name 
+*/
 void moveFile(directory_item dir, directory_item src, directory_item dest, int32_t* fat_tab, FILE* file, char* new_name) {
     directory_item item;
     char content[desc.cluster_size];
     char old_name[13];
     int adress = desc.data_start_address;
 
+    /* nacte polozku zmeni nazev a znovu zapise do FS */
     fseek(file, adress, SEEK_SET);
     fread(&item, sizeof(item), 1, file);
     while (strcmp(item.item_name, dir.item_name) != 0) {
@@ -373,28 +418,28 @@ int makeDirectory(directory_item dir, char* name, FILE* file, int32_t* fat_tab) 
         token = strtok(NULL, ",");
     }
     
-        strcat(content, ",");
-        strcat(content, name);
-        fseek(file, adress, SEEK_SET);
-        fwrite(&content, sizeof(content), 1, file);
+    strcat(content, ",");
+    strcat(content, name);
+    fseek(file, adress, SEEK_SET);
+    fwrite(&content, sizeof(content), 1, file);
 
-        memset(new_dir.item_name, '\0', sizeof(new_dir.item_name));
-        new_dir.isFile = 0;
-        strcpy(new_dir.item_name, name);
-        new_dir.size = 0;
-        new_dir.start_cluster = getEmptyCl(fat_tab);
+    memset(new_dir.item_name, '\0', sizeof(new_dir.item_name));
+    new_dir.isFile = 0;
+    strcpy(new_dir.item_name, name);
+    new_dir.size = 0;
+    new_dir.start_cluster = getEmptyCl(fat_tab);
 
-        adress = desc.data_start_address + desc.dir_entry_count * sizeof(directory_item);
-        desc.dir_entry_count++;
-        fseek(file, adress, SEEK_SET);
-        fwrite(&new_dir, sizeof(new_dir), 1, file);
+    adress = desc.data_start_address + desc.dir_entry_count * sizeof(directory_item);
+    desc.dir_entry_count++;
+    fseek(file, adress, SEEK_SET);
+    fwrite(&new_dir, sizeof(new_dir), 1, file);
 
-        fat_tab[new_dir.start_cluster] = FAT_FILE_END;
-        for (int i = 0; i < desc.cluster_count; i++) {
-            fseek(file, desc.fat1_start_address + (i * sizeof(int32_t)), SEEK_SET);
-            fwrite(&fat_tab[i], sizeof(int32_t), 1, file);
-        }
-        return 1;
+    fat_tab[new_dir.start_cluster] = FAT_FILE_END;
+    for (int i = 0; i < desc.cluster_count; i++) {
+        fseek(file, desc.fat1_start_address + (i * sizeof(int32_t)), SEEK_SET);
+        fwrite(&fat_tab[i], sizeof(int32_t), 1, file);
+    }
+    return 1;
     
 }
 
@@ -1172,8 +1217,9 @@ int main(int argc, char** argv) {
     char* rest = NULL;
     int prikaz;
 
-    /* aktualni cesta - pri spusteni v adresari root * /
+    /* aktualni cesta - pri spusteni v adresari root */
     strcpy(path_actual, "/root");
+    
     /* po spusteni neni formatovany vstupni soubor */
     bool formated = false;
 
